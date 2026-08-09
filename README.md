@@ -1,5 +1,4 @@
 
-markdown
 🧠  Multi-Agent Market Intelligence Engine
 
 
@@ -209,8 +208,3 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 
 **⭐ If this helped you, drop a star on GitHub! It helps other founders find it.**
-
-
-**You are done with the Market Research Agent (for now).** 🏆
-
-Want me to write the LinkedIn post for *this* release too? Or shall we jump back into AetherLab? 🚀
