@@ -1,18 +1,10 @@
 
-```markdown
-# 🧠 Enterprise Multi-Agent Market Intelligence Engine
+markdown
+🧠  Multi-Agent Market Intelligence Engine
 
-<img width="1278" height="657" alt="Screenshot 2026-08-07 183218" src="https://github.com/user-attachments/assets/7775ab20-67b5-41ea-b553-579db1aeaf3b" />
-
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![CrewAI](https://img.shields.io/badge/CrewAI-0.28+-green.svg)](https://www.crewai.io/)
-[![Groq](https://img.shields.io/badge/Groq-LPU-cyan.svg)](https://groq.com/)
-[![Status](https://img.shields.io/badge/status-production--ready-brightgreen)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > An asynchronous, stateful CrewAI orchestration engine that automates market research, competitor pricing, and unit-economics modeling—**now with Human-in-the-Loop review, PDF reporting, semantic caching, and Docker support**.
 
----
 
 ## 🎯 The Core Idea
 
@@ -26,9 +18,8 @@
 5. Professional PDF report generation
 6. **Semantic caching** (SQLite) to save 30-50% on API costs
 
----
 
-## ✨ Key Features (Updated Aug 10, 2026)
+✨ Key Features (Updated Aug 10, 2026)
 
 | Feature | Description |
 | :--- | :--- |
