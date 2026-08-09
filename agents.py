@@ -18,12 +18,8 @@ load_dotenv()
 litellm.drop_params = True
 
 
-def build_llm() -> LLM:
-    """Build the CrewAI LLM bound to Groq's OpenAI-compatible API.
-
-    Raises:
-        RuntimeError: If ``GROQ_API_KEY`` is missing from the environment.
-    """
+def build_llm(mode: str = "deep") -> LLM:
+    """Build Groq LLM. mode='quick' -> 8B, mode='deep' -> 70B."""
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
         raise RuntimeError(
@@ -31,10 +27,13 @@ def build_llm() -> LLM:
             "(GROQ_API_KEY=your_key_here) and restart the app."
         )
 
-    # WORKAROUND: Use the 'openai/' prefix and point the base_url to Groq.
-    # This prevents the 'cache_breakpoint' dictionary crash.
+    model = (
+        "openai/llama-3.1-8b-instant"
+        if mode == "quick"
+        else "openai/llama-3.3-70b-versatile"
+    )
     return LLM(
-        model="openai/llama-3.3-70b-versatile",
+        model=model,
         api_key=groq_api_key,
         base_url="https://api.groq.com/openai/v1",
         temperature=0.7,

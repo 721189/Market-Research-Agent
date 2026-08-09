@@ -13,6 +13,7 @@ dependency on ``agents.py`` and there is no circular import.
 from pydantic import BaseModel
 from crewai import Agent, Task
 
+from schemas import ConfidenceScore
 from tools import web_search_tool
 
 
@@ -41,7 +42,7 @@ def create_tasks(
     trend_scraper: Agent,
     financial_analyst: Agent,
     product_director: Agent,
-) -> tuple[Task, Task, Task]:
+) -> tuple[Task, Task, Task, Task]:
     """Build the three research tasks wired together with ``context``.
 
     Args:
@@ -56,18 +57,23 @@ def create_tasks(
     competitor_task = Task(
         name="Competitor Scrape",
         description=(
-            "Research the market for this product idea: "
-            f'"{product_idea}".\n'
+            f"Research the market for this product idea: \"{product_idea}\".\n\n"
+            "**CRITICAL TOKEN LIMIT INSTRUCTION:**\n"
+            "Your output MUST be under 3,000 characters total.\n"
+            "Limit your research to the TOP 5 most relevant competitors ONLY.\n\n"
             "Using the provided Web Search tool, find:\n"
-            "- Who the main competitors are and what comparable products they sell.\n"
-            "- Current market prices of those products.\n"
-            "- Customer sentiment, complaints, or gaps worth exploiting.\n"
-            "Synthesize your findings into a concise market research report."
+            "- The top 5 main competitors and what comparable products they sell.\n"
+            "- Current market prices of those specific products (numeric values where possible).\n"
+            "- A brief (1-sentence) summary of each competitor's positioning.\n\n"
+            "**Format your output as:**\n"
+            "Competitor 1: Name — Product — Price — Positioning\n"
+            "Competitor 2: Name — Product — Price — Positioning\n"
+            "... (repeat for top 5)\n\n"
+            "DO NOT include raw search results, long paragraphs, or analysis. Be concise."
         ),
         expected_output=(
-            "A concise Markdown research report listing: competitors, typical "
-            "price ranges, strengths/weaknesses of each competitor, and market "
-            "gaps worth exploiting."
+            "A bulleted list of exactly 5 competitors with product, price, and positioning. "
+            "Total output under 3,000 characters."
         ),
         agent=trend_scraper,
         tools=[web_search_tool],
@@ -117,4 +123,24 @@ def create_tasks(
         context=[financial_task],
     )
 
-    return (competitor_task, financial_task, launch_task)
+    confidence_task = Task(
+        name="Confidence Scoring",
+        description=(
+            "Review the financial analysis and the product launch brief for "
+            f'the product: "{product_idea}".\n\n'
+            "Evaluate the confidence of the insights generated, scoring them out of 100 based on:\n"
+            "- Source reliability\n"
+            "- Evidence coverage\n"
+            "- Consistency across data points\n"
+            "- Your own self-assessment as an LLM\n\n"
+            "Identify specific low-confidence and high-confidence insights with reasons."
+        ),
+        expected_output=(
+            "A structured JSON response matching the ConfidenceScore schema."
+        ),
+        agent=product_director,
+        output_pydantic=ConfidenceScore,
+        context=[financial_task, launch_task],
+    )
+
+    return (competitor_task, financial_task, launch_task, confidence_task)

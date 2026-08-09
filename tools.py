@@ -11,6 +11,7 @@ from typing import Annotated
 from crewai.tools import tool
 from dotenv import load_dotenv
 from tavily import TavilyClient
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 load_dotenv()
 
@@ -38,12 +39,17 @@ def web_search_tool(question: Annotated[str, "The question to research on the we
     for the supplied question.
     """
     client = _build_client()
-    response = client.search(
-        query=question,
-        search_depth="advanced",
-        max_results=6,
-        include_answer=True,
-    )
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
+    def _search():
+        return client.search(
+            query=question,
+            search_depth="advanced",
+            max_results=6,
+            include_answer=True,
+        )
+
+    response = _search()
     results = response.get("results", [])
     return json.dumps(
         {
