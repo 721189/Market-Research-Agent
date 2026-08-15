@@ -153,6 +153,42 @@ docker-compose up --build
 
 
 
+## ⚡ Async API (Phase 1)
+
+The pipeline can also run as a non-blocking **FastAPI + Celery + Redis** stack.
+
+**Run all services locally:**
+
+```bash
+# Terminal 1: Redis
+redis-server
+
+# Terminal 2: Celery worker
+celery -A worker.research_task worker --loglevel=info
+
+# Terminal 3: FastAPI
+uvicorn api.main:app --reload
+```
+
+**Or with Docker:**
+
+```bash
+docker compose up --build
+```
+
+**Endpoints:**
+
+| Method | Path             | Body                                        | Returns                   |
+| ------ | ---------------- | ------------------------------------------- | ------------------------- |
+| POST   | `/research`      | `{"product_idea": "...", "mode": "deep"}`   | `{"task_id": "..."}`      |
+| GET    | `/research/{id}` | —                                           | job status + result       |
+
+> **Note:** the background worker package is named `worker` (not `tasks`)
+> because the repo already has a root `tasks.py` module that `flow.py` /
+> `main.py` import from — a `tasks/` directory would shadow that module's
+> imports.
+
+---
 ## 📁 Project Structure (v2.0)
 
 

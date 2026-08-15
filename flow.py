@@ -10,7 +10,8 @@ from crewai.flow import Flow, listen, start
 from agents import build_agents, build_llm
 from hitl import StreamlitFeedbackProvider
 from schemas import ConfidenceScore
-from tasks import FinancialAnalysis, create_tasks
+from state import AppState
+from tasks import FinancialAnalysis, create_tasks, validate_input
 
 
 async def run_crew_tasks(
@@ -53,40 +54,36 @@ def _parse_outputs(result) -> dict[str, Any]:
 class MarketResearchFlow(Flow):
     """Research pipeline: scrape → HITL review → launch + confidence."""
 
-    def __init__(self, session_state=None, task_callback=None, **kwargs):
+    def __init__(self, session_state=None, task_callback=None, initial_state=None, **kwargs):
         super().__init__(**kwargs)
         self._ss = session_state
         self._task_callback = task_callback
         self._provider = StreamlitFeedbackProvider(session_state) if session_state else None
-        
-        # Initialize state as a dictionary
-        self.state["product_idea"] = ""
-        self.state["mode"] = "deep"
-        self.state["stage"] = "idle"
-        self.state["financials"] = {}
-        self.state["launch_brief"] = ""
-        self.state["confidence"] = {}
-        self.state["competitor_report"] = ""
+
+        # Typed, validated state. ``state`` is a read-only property inherited
+        # from the CrewAI Flow base, so we seed the underlying ``_state`` with
+        # an AppState (or the supplied ``initial_state``).
+        self._state = initial_state if initial_state is not None else AppState()
 
     @start()
     async def phase_one(self):
-        self.state["stage"] = "running"
+        self.state.stage = "running"
         result = await run_crew_tasks(
-            self.state["product_idea"],
-            self.state["mode"],
+            self.state.product_idea,
+            self.state.mode,
             ["Competitor Scrape", "Financial Margin"],
             self._task_callback,
         )
         parsed = _parse_outputs(result)
-        self.state["competitor_report"] = str(parsed.get("Competitor Scrape", ""))
+        self.state.competitor_report = str(parsed.get("Competitor Scrape", ""))
         raw_fin = parsed.get("Financial Margin", {})
         if isinstance(raw_fin, FinancialAnalysis):
-            self.state["financials"] = raw_fin.model_dump()
+            self.state.financials = raw_fin.model_dump()
         elif isinstance(raw_fin, dict):
-            self.state["financials"] = raw_fin
+            self.state.financials = raw_fin
         else:
-            self.state["financials"] = {"raw": str(raw_fin)}
-        return self.state["financials"]
+            self.state.financials = {"raw": str(raw_fin)}
+        return self.state.financials
 
     @listen(phase_one)
     def review_gate(self, financials):
@@ -94,7 +91,7 @@ class MarketResearchFlow(Flow):
         if self._provider:
             from crewai.flow.async_feedback.types import PendingFeedbackContext
             ctx = PendingFeedbackContext(
-                flow_id=str(self.state.get("id", "flow")),
+                flow_id=str(getattr(self.state, "id", None) or self.flow_id or "flow"),
                 flow_class=self.__class__.__name__,
                 method_name="review_gate",
                 method_output=financials,
@@ -104,37 +101,74 @@ class MarketResearchFlow(Flow):
             self._provider.request_feedback(ctx, self)
         if self._ss is not None:
             self._ss["stage"] = "awaiting_review"
-        self.state["stage"] = "awaiting_review"
+        self.state.stage = "awaiting_review"
         return financials
 
     @listen("approved")
     async def phase_two(self, _financials):
-        self.state["stage"] = "running"
+        self.state.stage = "running"
         result = await run_crew_tasks(
-            self.state["product_idea"],
-            self.state["mode"],
+            self.state.product_idea,
+            self.state.mode,
             ["Product Launch Brief", "Confidence Scoring"],
             self._task_callback,
         )
         parsed = _parse_outputs(result)
-        self.state["launch_brief"] = str(parsed.get("Product Launch Brief", ""))
+        self.state.launch_brief = str(parsed.get("Product Launch Brief", ""))
         raw_conf = parsed.get("Confidence Scoring", {})
         if isinstance(raw_conf, ConfidenceScore):
-            self.state["confidence"] = raw_conf.model_dump()
+            self.state.confidence = raw_conf.model_dump()
         elif isinstance(raw_conf, dict):
-            self.state["confidence"] = raw_conf
-        self.state["stage"] = "complete"
+            self.state.confidence = raw_conf
+        self.state.stage = "complete"
         if self._ss is not None:
             self._ss["stage"] = "complete"
         return self.state
 
 
 async def kickoff_research(product_idea, mode, session_state, task_callback=None):
-    flow = MarketResearchFlow(session_state=session_state, task_callback=task_callback)
-    flow.state["product_idea"] = product_idea
-    flow.state["mode"] = mode
+    validate_input(product_idea)
+    flow = MarketResearchFlow(
+        session_state=session_state,
+        task_callback=task_callback,
+        initial_state=AppState(product_idea=product_idea, mode=mode),
+    )
     result = await flow.kickoff_async()
     return result, flow
+
+
+async def auto_research_async(product_idea: str, mode: str = "deep"):
+    """Headless full-pipeline run used by the Celery worker.
+
+    Kicks off the flow and, at the HITL gate, auto-approves so phase two
+    (launch brief + confidence) completes without a live session.
+
+    Returns:
+        A ``(payload: dict, flow)`` tuple where ``payload`` is the
+        JSON-serializable result dict.
+    """
+    validate_input(product_idea)
+    from crewai.flow.async_feedback.types import HumanFeedbackPending
+
+    flow = MarketResearchFlow(
+        session_state={},  # minimal dict enables the HITL provider pause
+        initial_state=AppState(product_idea=product_idea, mode=mode),
+    )
+    try:
+        await flow.kickoff_async()
+    except HumanFeedbackPending:
+        await flow.resume_async("approved")
+
+    payload = {
+        "product_idea": flow.state.product_idea,
+        "mode": flow.state.mode,
+        "stage": flow.state.stage,
+        "financials": flow.state.financials,
+        "launch_brief": flow.state.launch_brief,
+        "confidence": flow.state.confidence,
+        "competitor_report": flow.state.competitor_report,
+    }
+    return payload, flow
 
 
 async def resume_research(flow: MarketResearchFlow, feedback: str = "approved"):

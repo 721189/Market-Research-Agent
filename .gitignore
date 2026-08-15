@@ -1,6 +1,23 @@
-.env
-venv/
+# Database cache files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temp files
+temp_*
+*.tmp
+
+# Python
 __pycache__/
 *.pyc
-.temp_probe.py
-.streamlit/secrets.toml
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Async worker / API runtime artifacts
+*.log
+llm_calls.log

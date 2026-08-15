@@ -17,6 +17,23 @@ from schemas import ConfidenceScore
 from tools import web_search_tool
 
 
+def validate_input(product_idea: str) -> bool:
+    """Guardrail: reject empty or too-short product ideas before tasks run.
+
+    Args:
+        product_idea: The user's product idea text.
+
+    Returns:
+        Always ``True`` when validation passes.
+
+    Raises:
+        ValueError: If the input has fewer than 3 non-whitespace characters.
+    """
+    if len(product_idea.strip()) < 3:
+        raise ValueError("Product idea must be at least 3 characters")
+    return True
+
+
 class FinancialAnalysis(BaseModel):
     """Structured financial view of a product idea.
 
@@ -54,6 +71,7 @@ def create_tasks(
     Returns:
         A tuple of ``(competitor_task, financial_task, launch_task)``.
     """
+    validate_input(product_idea)
     competitor_task = Task(
         name="Competitor Scrape",
         description=(
