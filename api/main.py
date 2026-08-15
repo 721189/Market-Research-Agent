@@ -11,14 +11,22 @@ Run with::
 Requires a running Redis and a Celery worker::
 
     celery -A worker.research_task worker --loglevel=info
+
+Phase 3 hardening: per-client rate limiting (slowapi), PII redaction before
+any data is persisted, and append-only CSV audit logging.
 """
 
 from typing import Any
 
 from celery.result import AsyncResult
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, Request
 from pydantic import BaseModel, Field
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
+from audit import log_request
+from pii_redactor import redact_pii
+from rate_limiter import limiter
 from tasks import validate_input
 from worker.celery_app import celery_app
 from worker.research_task import run_research_task
@@ -26,15 +34,18 @@ from worker.research_task import run_research_task
 app = FastAPI(
     title="Market Research Agent API",
     description="Enqueue and poll async market research jobs.",
-    version="1.0.0",
+    version="1.1.0",  # Phase 3: security & compliance
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 class ResearchRequest(BaseModel):
     """Body for starting a research job."""
 
     product_idea: str = Field(min_length=1, description="The product idea to research.")
-    mode: str = Field(default="deep", pattern="^(quick|deep)$")
+    mode: str = Field(default="deep", pattern="^(quick|deep|batch)$")
 
 
 @app.get("/")
@@ -44,10 +55,25 @@ def root() -> dict[str, str]:
 
 
 @app.post("/research")
-def start_research(req: ResearchRequest) -> dict[str, str]:
-    """Validate input, enqueue the job, and return its Celery task id."""
+@limiter.limit("100/day")
+def start_research(
+    request: Request,
+    req: ResearchRequest,
+    user_id: str = Header(default="anonymous", alias="X-User-ID"),
+) -> dict[str, str]:
+    """Validate input, enqueue the job, and return its Celery task id.
+
+    Rate-limited to 100 requests per day per client IP. Logs an audit row
+    with PII redacted before it reaches the CSV.
+    """
     validate_input(req.product_idea)
     task = run_research_task.delay(req.product_idea, req.mode)
+    # Only redacted values are persisted to the audit trail.
+    log_request(
+        user_id=redact_pii(user_id),
+        product=redact_pii(req.product_idea),
+        task_id=task.id,
+    )
     return {"task_id": task.id}
 
 

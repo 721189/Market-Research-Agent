@@ -14,3 +14,4 @@ uvicorn>=0.30.0
 celery>=5.4.0
 redis>=5.0.0
 openai>=1.0.0
+slowapi>=0.1.9

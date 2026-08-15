@@ -21,3 +21,6 @@ venv/
 # Async worker / API runtime artifacts
 *.log
 llm_calls.log
+
+# Security / audit runtime artifacts
+audit.csv

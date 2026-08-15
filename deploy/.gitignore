@@ -1,0 +1,9 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+audit.csv
+*.log
+output/
+.crewai/
