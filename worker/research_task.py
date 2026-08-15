@@ -10,13 +10,8 @@ import asyncio
 from .celery_app import celery_app
 from flow import auto_research_async
 from logging_config import log_llm_call
+from routing import get_llm_config
 from tasks import validate_input
-
-# Model identifiers mirror agents.build_llm().
-_MODEL_BY_MODE = {
-    "quick": "llama-3.1-8b-instant",
-    "deep": "llama-3.3-70b-versatile",
-}
 
 
 @celery_app.task(name="research.run", bind=True, max_retries=2, default_retry_delay=5)
@@ -46,7 +41,9 @@ def run_research_task(self, product_idea: str, mode: str = "deep"):
     try:
         usage = getattr(flow, "usage_metrics", None)
         tokens = int(getattr(usage, "total_tokens", 0) or 0)
-        log_llm_call(provider="groq", model=_MODEL_BY_MODE.get(mode, _MODEL_BY_MODE["deep"]), tokens=tokens)
+        cfg = get_llm_config(mode)
+        provider_label = "deepinfra" if "deepinfra" in cfg["base_url"] else "groq"
+        log_llm_call(provider=provider_label, model=cfg["model"], tokens=tokens)
     except Exception:
         # Logging must never sink a completed job.
         pass

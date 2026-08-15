@@ -260,11 +260,14 @@ def main():
 
     with st.sidebar:
         st.markdown("## 🧰 Setup")
-        for key, label in [("TAVILY_API_KEY", "Tavily"), ("GROQ_API_KEY", "Groq")]:
+        for key, label in [("TAVILY_API_KEY", "Tavily"), ("GROQ_API_KEY", "Groq"), ("DEEPINFRA_API_KEY", "DeepInfra")]:
             ok = bool(os.getenv(key))
             cls = "key-badge-ok" if ok else "key-badge-missing"
             st.markdown(f'<span class="{cls}">{"✓" if ok else "✗"} {label}</span>', unsafe_allow_html=True)
         mode = st.radio("Analysis depth", ["quick", "deep"], format_func=lambda x: "Quick Look (8B)" if x == "quick" else "Deep Analysis (70B)")
+        batch_mode = st.checkbox("Use Batch API (~20% cheaper, slower)")
+        if batch_mode:
+            mode = "batch"
 
     st.markdown("# 🕵️ Market Research Crew")
     st.caption("Competitor scrape → Financials → HITL review → Launch brief + Confidence score")

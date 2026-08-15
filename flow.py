@@ -7,11 +7,11 @@ from typing import Any, Callable
 from crewai import Crew, Process
 from crewai.flow import Flow, listen, start
 
-from agents import build_agents, build_llm
+from agents import build_agents
 from hitl import StreamlitFeedbackProvider
 from schemas import ConfidenceScore
 from state import AppState
-from tasks import FinancialAnalysis, create_tasks, validate_input
+from tasks import FinancialAnalysis, create_tasks, summarize_context, validate_input
 
 
 async def run_crew_tasks(
@@ -20,8 +20,7 @@ async def run_crew_tasks(
     task_names: list[str],
     task_callback: Callable | None = None,
 ):
-    llm = build_llm(mode)
-    trend, financial, director = build_agents(llm)
+    trend, financial, director = build_agents(complexity=mode)
     comp, fin, launch, conf = create_tasks(product_idea, trend, financial, director)
     task_map = {
         "Competitor Scrape": comp,
@@ -75,7 +74,7 @@ class MarketResearchFlow(Flow):
             self._task_callback,
         )
         parsed = _parse_outputs(result)
-        self.state.competitor_report = str(parsed.get("Competitor Scrape", ""))
+        self.state.competitor_report = summarize_context(str(parsed.get("Competitor Scrape", "")))
         raw_fin = parsed.get("Financial Margin", {})
         if isinstance(raw_fin, FinancialAnalysis):
             self.state.financials = raw_fin.model_dump()

@@ -5,11 +5,11 @@ Uses the OpenAI compatibility layer workaround to force LiteLLM to
 strip unsupported Anthropic-style 'cache_breakpoint' tags from messages.
 """
 
-import os
 import litellm
 from crewai import Agent, LLM
 from dotenv import load_dotenv
 
+from routing import get_llm_config
 from tools import web_search_tool
 
 load_dotenv()
@@ -18,37 +18,56 @@ load_dotenv()
 litellm.drop_params = True
 
 
-def build_llm(mode: str = "deep") -> LLM:
-    """Build Groq LLM. mode='quick' -> 8B, mode='deep' -> 70B."""
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    if not groq_api_key:
+def build_llm(task_type: str = "deep") -> LLM:
+    """Build a CrewAI LLM routed by task type (see ``routing.py``).
+
+    Accepts routing keys (``scrape`` / ``financial`` / ``product``) or the
+    legacy complexity keys (``quick`` / ``deep`` / ``batch``). Reads provider,
+    model and base URL from :func:`routing.get_llm_config`.
+    """
+    cfg = get_llm_config(task_type)
+    if not cfg.get("api_key"):
         raise RuntimeError(
-            "GROQ_API_KEY is not set. Add it to your .env file "
-            "(GROQ_API_KEY=your_key_here) and restart the app."
+            "An LLM API key is not set for the requested route. Add "
+            "GROQ_API_KEY (and DEEPINFRA_API_KEY for batch mode) to your .env "
+            "file and restart the app."
         )
-
-    model = (
-        "openai/llama-3.1-8b-instant"
-        if mode == "quick"
-        else "openai/llama-3.3-70b-versatile"
-    )
     return LLM(
-        model=model,
-        api_key=groq_api_key,
-        base_url="https://api.groq.com/openai/v1",
-        temperature=0.7,
+        model=cfg["model"],
+        api_key=cfg["api_key"],
+        base_url=cfg["base_url"],
+        temperature=0.2,
     )
 
 
-def build_agents(llm: LLM) -> tuple[Agent, Agent, Agent]:
-    """Build the three agents sharing a single Groq LLM and the web search tool.
+def build_agents(
+    llm: LLM | None = None,
+    complexity: str = "deep",
+) -> tuple[Agent, Agent, Agent]:
+    """Build the three agents with task-aware LLM routing.
 
     Args:
-        llm: The CrewAI ``LLM`` instance created by :func:`build_llm`.
+        llm: Optional shared ``LLM``. When provided all agents use it
+            (backward compatible). When omitted, each agent receives a routed
+            ``LLM`` from :func:`build_llm`.
+        complexity: ``quick`` (all on 8B), ``deep`` (task-routed: scrape on
+            8B, financial/product on 70B) or ``batch`` (DeepInfra for all,
+            falling back to Groq deep when the key is unset).
 
     Returns:
         A tuple of ``(trend_scraper, financial_analyst, product_director)``.
     """
+    if llm is not None:
+        trend_llm = financial_llm = product_llm = llm
+    elif complexity == "quick":
+        trend_llm = financial_llm = product_llm = build_llm("quick")
+    elif complexity == "batch":
+        trend_llm = financial_llm = product_llm = build_llm("batch")
+    else:
+        trend_llm = build_llm("scrape")
+        financial_llm = build_llm("financial")
+        product_llm = build_llm("product")
+
     trend_scraper = Agent(
         role="Trend Scraper",
         goal=(
@@ -62,7 +81,7 @@ def build_agents(llm: LLM) -> tuple[Agent, Agent, Agent]:
             "how much, and where customers are unhappy."
         ),
         tools=[web_search_tool],
-        llm=llm,
+        llm=trend_llm,
         verbose=True,
         allow_delegation=False,
         memory=False,
@@ -82,7 +101,7 @@ def build_agents(llm: LLM) -> tuple[Agent, Agent, Agent]:
             "with the competitor prices you found on the web."
         ),
         tools=[web_search_tool],
-        llm=llm,
+        llm=financial_llm,
         verbose=True,
         allow_delegation=False,
         memory=False,
@@ -101,7 +120,7 @@ def build_agents(llm: LLM) -> tuple[Agent, Agent, Agent]:
             "pricing rationale, a 90-day plan, and honest risks."
         ),
         tools=[web_search_tool],
-        llm=llm,
+        llm=product_llm,
         verbose=True,
         allow_delegation=False,
         memory=False,

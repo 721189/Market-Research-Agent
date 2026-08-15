@@ -34,6 +34,21 @@ def validate_input(product_idea: str) -> bool:
     return True
 
 
+def summarize_context(long_text: str, max_length: int = 2000) -> str:
+    """Cap long context to a maximum length (prompt compression).
+
+    Args:
+        long_text: The context text to possibly shorten.
+        max_length: Maximum allowed number of characters.
+
+    Returns:
+        ``long_text`` truncated to ``max_length`` chars, with a marker when cut.
+    """
+    if len(long_text) > max_length:
+        return long_text[:max_length] + "... (truncated)"
+    return long_text
+
+
 class FinancialAnalysis(BaseModel):
     """Structured financial view of a product idea.
 
@@ -95,6 +110,7 @@ def create_tasks(
         ),
         agent=trend_scraper,
         tools=[web_search_tool],
+        cache=True,
     )
 
     financial_task = Task(
@@ -117,6 +133,7 @@ def create_tasks(
         agent=financial_analyst,
         output_pydantic=FinancialAnalysis,
         context=[competitor_task],
+        cache=True,
     )
 
     launch_task = Task(
