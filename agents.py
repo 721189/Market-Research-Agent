@@ -1,8 +1,9 @@
 """Agent definitions for the market research crew.
 
-Configures the Groq LLM through CrewAI's LLM class.
-Uses the OpenAI compatibility layer workaround to force LiteLLM to 
-strip unsupported Anthropic-style 'cache_breakpoint' tags from messages.
+Configures the LLM (OpenRouter primary, Groq fallback) through
+CrewAI's LLM class. Uses the OpenAI compatibility layer workaround
+via LiteLLM's ``openai/`` prefix to strip unsupported Anthropic-style
+'cache_breakpoint' tags from messages.
 """
 
 import litellm
@@ -29,7 +30,8 @@ def build_llm(task_type: str = "deep") -> LLM:
     if not cfg.get("api_key"):
         raise RuntimeError(
             "An LLM API key is not set for the requested route. Add "
-            "GROQ_API_KEY (and DEEPINFRA_API_KEY for batch mode) to your .env "
+            "OPENROUTER_API_KEY (or GROQ_API_KEY as fallback, and "
+            "DEEPINFRA_API_KEY for batch mode) to your .env "
             "file and restart the app."
         )
     return LLM(

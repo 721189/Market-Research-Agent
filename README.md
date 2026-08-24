@@ -1,246 +1,180 @@
+# 🕵️ Market Research Agent
 
-🧠  Multi-Agent Market Intelligence Engine
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![CrewAI](https://img.shields.io/badge/CrewAI-1.15-FF4D5D)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+![TailwindCSS](https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss)
 
+**Multi-agent market research on autopilot.** Describe a product idea — a crew of
+three AI agents scrapes your top competitors, models realistic unit economics,
+pauses for **your review**, then delivers a confidence-scored go-to-market brief
+with a stakeholder-ready PDF export.
 
-> An asynchronous, stateful CrewAI orchestration engine that automates market research, competitor pricing, and unit-economics modeling—**now with Human-in-the-Loop review, PDF reporting, semantic caching, and Docker support**.
+## ✨ Features
 
+- 🤖 **3-agent CrewAI pipeline** — Trend Scraper → Financial Analyst → Product Director
+- ⏸️ **Human-in-the-loop review gate** — approve, edit, or reject the numbers before anything ships
+- 🧮 **Structured unit economics** — COGS, retail price, gross margin (Pydantic-validated)
+- 🎯 **Confidence scoring** — 0–100 trust score with per-dimension breakdown
+- 📄 **PDF reports** — McKinsey-style one-click export
+- ⚡ **Async by design** — FastAPI + Celery + Redis; the UI never blocks
+- 🖥️ **Modern web dashboard** — Next.js 16 + Tailwind v4, animated pipeline stepper & confidence gauge
+- 🔀 **Cost-aware LLM routing** — OpenRouter primary (free models) with automatic Groq fallback; slugs configurable via `.env`
 
-## 🎯 The Core Idea
+## 🏗️ Architecture
 
-**The Problem:** Founders and product managers spend weeks manually scraping competitor data. Consultants charge $5,000–$10,000 for a single report.
-
-**The Solution:** This project codifies that consulting workflow into a **stateful, event-driven CrewAI Flow** with:
-1. Web scraping (Tavily)
-2. Financial analysis (Pydantic-validated)
-3. **Human-in-the-Loop review** (approve/reject financials before the brief is generated)
-4. Confidence scoring on every insight
-5. Professional PDF report generation
-6. **Semantic caching** (SQLite) to save 30-50% on API costs
-
-
-✨ Key Features (Updated Aug 10, 2026)
-
-| Feature | Description |
-| :--- | :--- |
-| **Stateful CrewAI Flows** | Event-driven workflow with branching (`@start`, `@listen`) instead of sequential scripts. |
-| **Human-in-the-Loop (HITL)** | Custom review gate pauses execution at the financial analysis stage. Humans approve or edit numbers before the launch brief is generated. Prevents hallucinated costs (e.g., $0.12 coffee cup). |
-| **Confidence Scoring** | Each insight is scored out of 100 based on source reliability, evidence coverage, consistency, and LLM self-assessment. |
-| **PDF Export (reportlab)** | One-click generation of McKinsey-style consulting reports with financial tables, executive summaries, and confidence scores. |
-| **Semantic Caching (SQLite)** | Stores query+response pairs. Repeated queries return instantly—saves tokens and money. |
-| **Dockerized** | Fully containerized with `Dockerfile` and `docker-compose.yml` for one-command deployment. |
-| **Streamlit Dashboard** | Interactive UI with real-time progress tracking, A/B testing, and download buttons. |
-
----
-
-## 🏗️ Architecture & Workflow (Current v2.0)
-
-```mermaid
-flowchart TD
-    User[User Input: Product Idea] --> UI[Streamlit Dashboard]
-    UI --> Flow[CrewAI Flow Orchestrator]
-    
-    subgraph Flow [Stateful Event-Driven Pipeline]
-        direction TB
-        P1[Phase 1: Scrape + Financials] --> P2[Human-in-the-Loop Review Gate]
-        P2 -->|Approved| P3[Phase 2: Launch Brief + Confidence]
-        P2 -->|Rejected| P1
-    end
-    
-    Flow --> Cache[Semantic Cache (SQLite)]
-    Cache -->|Cache Hit| UI
-    Cache -->|Cache Miss| Agents
-    
-    subgraph Agents [Agentic Crew]
-        Scraper[Trend Scraper] --> Analyst[Financial Analyst]
-        Analyst --> Director[Product Director]
-    end
-    
-    Agents --> PDF[PDF Export (reportlab)]
-    PDF --> UI
+```
+┌────────────────┐   /api/* proxy   ┌────────────────────┐   enqueue   ┌───────────────────┐
+│ Next.js UI     │ ───────────────► │ FastAPI :8000      │ ──────────► │ Celery worker     │
+│ localhost:3000 │ ◄─────────────── │ POST /research     │ ◄────────── │ CrewAI pipeline   │
+└────────────────┘    poll JSON     │ GET /research/{id} │   results   │ OpenRouter→Groq   │
+                                    └────────────────────┘             └───────────────────┘
+                                             ▲                                │
+                                             │ PDF bytes                      ▼
+                                    GET /research/{id}/pdf           Redis broker (:6379)
 ```
 
-**What Makes This Different:**
-- **Phase 1:** Trend Scraper + Financial Analyst run. Output is validated via Pydantic.
-- **HITL Gate:** Streamlit pauses and shows the financial numbers to the user. User approves, edits, or rejects.
-- **Phase 2:** Only after approval, the Product Director generates the launch brief and Confidence Score.
-- **Semantic Cache:** Checks if an identical product was researched before. If yes, returns instantly.
+## 📁 Project structure
 
----
+```
+├── api/main.py            # FastAPI app: research endpoints + PDF export + CORS
+├── frontend/              # Next.js 16 + Tailwind v4 web dashboard
+│   └── app/               # landing page, /dashboard, lib/api.ts client
+├── flow.py                # CrewAI Flow orchestration + HITL gate
+├── agents.py              # agent factory + LLM construction
+├── tasks.py               # task defs + FinancialAnalysis schema
+├── routing.py             # cost-aware LLM routing (OpenRouter/Groq/DeepInfra)
+├── hitl.py                # human-in-the-loop feedback provider
+├── pdf_export.py          # reportlab PDF generation
+├── worker/                # Celery app + research task
+├── main.py                # legacy Streamlit UI (still functional)
+└── tests/                 # pytest suite
+```
+## 🚀 Quickstart
 
-## 📸 Live Demo
+### 0. Prerequisites
+- Python 3.11+ with the project virtualenv at `venv/`
+- Node.js LTS (for the frontend)
+- A Redis server reachable on `localhost:6379` (options below)
 
-<img width="1266" height="673" alt="Screenshot 2026-08-07 183247" src="https://github.com/user-attachments/assets/8ddfda83-d619-430d-a026-e6a8ae018555" />
-
-<img width="1218" height="662" alt="Screenshot 2026-08-07 183409" src="https://github.com/user-attachments/assets/abadaadb-9071-421d-a9e0-54688503ab31" />
-
----
-
-## 💡 Why This Project?
-
-**The Honest Truth:** This doesn't replace a consulting firm—it replaces the *discovery phase*. It gives you a 70% complete, *human-verified* foundation in 60 seconds.
-
-**Engineering Motivation:**
-- **Agentic Design Patterns:** Event-driven Flows with conditional branching.
-- **Cost-Efficient AI:** Groq Llama 3.3 70B for deep analysis, caching to avoid repeat costs.
-- **Responsible AI:** HITL review gates prevent hallucinations from reaching the final report.
-
----
-
-## 🎯 Who Is This For?
-
-| Role | Value |
-| :--- | :--- |
-| **Solopreneurs / Founders** | Validate product viability without paying $10k. |
-| **Product Managers** | Benchmark competitors in minutes, not weeks. |
-| **AI Engineers** | Study CrewAI Flows, HITL, and caching patterns. |
-| **Hackathon Teams** | Generate business plans to pitch alongside prototypes. |
-
----
-
-## ⚠️ Honest Limitations (v2.0)
-
-1. **COGS still requires human validation:** The Confidence Score will flag low-confidence numbers (like $0.12 COGS), but you must use the HITL gate to correct it.
-2. **Freshness Reliance:** Quality depends on Tavily search results. If the web has no data on your niche, the agents extrapolate from adjacent markets.
-3. **Latency:** The full pipeline (including HITL) takes ~60 seconds per query. Cached queries return instantly.
-
----
-
-## 📦 Requirements
-
-- **Python 3.9+**
-- **API Keys Required:**
-  - [Groq API Key](https://console.groq.com/)
-  - [Tavily API Key](https://tavily.com/)
-
----
-
-## 🚀 Quick Start (Local Setup)
-
-**1. Clone the Repository**
-```bash
-git clone https://github.com/721189/Market-Research-Agent.git
-cd Market-Research-Agent
+```powershell
+python -m venv venv
+.\venv\Scripts\pip install -r requirements.txt
+copy .env.example .env        # then paste your keys
 ```
 
-**2. Set up a Virtual Environment**
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+### 1. Redis — pick ONE
+
+| Option | How |
+|---|---|
+| **Portable ZIP** (simplest) | [tporadowski/redis releases](https://github.com/tporadowski/redis/releases) → extract → `.\redis-server.exe` |
+| **Memurai** | Windows-native Redis-compatible service; auto-starts on 6379 |
+| **Docker** | `docker run -d --name mra-redis -p 6379:6379 redis:7-alpine` |
+| **WSL** | `wsl` → `sudo apt install redis-server && sudo service redis-server start` |
+
+> Windows has no official native `redis-server` binary — that's expected.
+
+### 2. Celery worker
+
+```powershell
+.\venv\Scripts\python -m celery -A worker.research_task worker --loglevel=info --pool=solo
 ```
 
-**3. Install Dependencies**
-```bash
-pip install -r requirements.txt
+> ⚠️ **`--pool=solo` is required on Windows.** The default prefork pool crashes with
+> `MemoryError` / `PermissionError [WinError 5]` under billiard's spawn model.
+
+### 3. FastAPI
+
+```powershell
+.\venv\Scripts\python -m uvicorn api.main:app --reload
 ```
 
-**4. Configure Environment Variables**
-Create a `.env` file in the root directory:
-```env
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxx
-TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxxxxxxxxxx
+### 4. Frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev
 ```
 
-**5. Run the Streamlit App**
-```bash
-streamlit run main.py
+Open **http://localhost:3000/dashboard**, describe a product idea, and launch.
+The dev server proxies `/api/*` to FastAPI on `:8000` (no CORS setup needed).
 
-Enter a product idea (e.g., "Electric scooter"), review the financials when prompted, and download your PDF report.
+> The legacy Streamlit UI still works too: `.\venv\Scripts\streamlit run main.py`
 
-**6. Run with Docker (Optional)**
-```bash
-docker-compose up --build
+## 🔑 Environment variables
 
+| Variable | Required | Purpose |
+|---|---|---|
+| `OPENROUTER_API_KEY` | yes* | Primary LLM provider ([get a key](https://openrouter.ai/keys)) |
+| `TAVILY_API_KEY` | yes | Live web search for competitor scraping |
+| `GROQ_API_KEY` | fallback | Used automatically when the OpenRouter key is missing |
+| `DEEPINFRA_API_KEY` | no | Enables Batch API mode (~20% cheaper) |
+| `OPENROUTER_SCRAPE_MODEL` | no | Override the cheap scrape model slug |
+| `OPENROUTER_DEEP_MODEL` | no | Override the financial/brief model slug |
 
+\* Runs fall back to Groq when OpenRouter is unconfigured.
 
+### Free-tier survival guide
 
-## ⚡ Async API (Phase 1)
+OpenRouter rotates its free models frequently and caps free usage:
 
-The pipeline can also run as a non-blocking **FastAPI + Celery + Redis** stack.
+- **404 "model not found"** → that free slug was retired. Browse live ones at
+  [openrouter.ai/models?max_price=0](https://openrouter.ai/models?max_price=0),
+  then set `OPENROUTER_SCRAPE_MODEL` / `OPENROUTER_DEEP_MODEL` in `.env`.
+- **429 "free-models-per-day"** → you hit the 50 requests/day cap. Each research
+  run makes many LLM calls (tool loops), so expect ~2–5 runs/day. Adding
+  **$10 credits raises the cap to 1000/day** and unlocks cheap paid models.
 
-**Run all services locally:**
+Current defaults (verified live): scrape = `nvidia/nemotron-3.5-lightning:free`,
+deep = `nvidia/nemotron-3-super-120b-a12b:free`.
+
+## 🔌 API reference
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/research` | `{"product_idea": "...", "mode": "quick\\|deep\\|batch"}` | `{"task_id": "..."}` |
+| GET | `/research/{id}` | — | `{status, result?, error?}` — poll until `SUCCESS` |
+| GET | `/research/{id}/pdf` | — | PDF report download (409 until complete) |
+
+Interactive docs: <http://localhost:8000/docs>
+
+## 🔄 The HITL flow
+
+1. **Competitor Scrape** — Tavily-powered web research on the top 5 rivals
+2. **Financial Margin** — structured COGS / retail / margin analysis
+3. **⏸️ Review gate** — the pipeline pauses; approve, edit the numbers, or reject
+4. **Launch Brief + Confidence** — final GTM brief scored 0–100 across source
+   reliability, evidence coverage, and consistency
+
+The headless API path auto-approves step 3 and hard-fails (triggering a Celery
+retry) if phase two doesn't fully complete — no hollow reports.
+
+## 🐳 Docker Compose
 
 ```bash
-# Terminal 1: Redis
-redis-server
-
-# Terminal 2: Celery worker
-celery -A worker.research_task worker --loglevel=info
-
-# Terminal 3: FastAPI
-uvicorn api.main:app --reload
+docker compose up --build   # redis + worker + api (+ legacy streamlit app)
 ```
 
-**Or with Docker:**
+## 🧪 Testing
 
-```bash
-docker compose up --build
+```powershell
+.\venv\Scripts\python -m pytest tests/ -q
 ```
 
-**Endpoints:**
+## 🛠️ Troubleshooting
 
-| Method | Path             | Body                                        | Returns                   |
-| ------ | ---------------- | ------------------------------------------- | ------------------------- |
-| POST   | `/research`      | `{"product_idea": "...", "mode": "deep"}`   | `{"task_id": "..."}`      |
-| GET    | `/research/{id}` | —                                           | job status + result       |
-
-> **Note:** the background worker package is named `worker` (not `tasks`)
-> because the repo already has a root `tasks.py` module that `flow.py` /
-> `main.py` import from — a `tasks/` directory would shadow that module's
-> imports.
-
----
-## 📁 Project Structure (v2.0)
-
-
-Market-Research-Agent/
-├── agents.py              # Agent definitions (Trend, Financial, Director)
-├── tasks.py               # Task definitions with Pydantic schemas
-├── tools.py               # Tavily web search tool wrapper
-├── flow.py                # CrewAI Flow orchestrator (state machine)
-├── hitl.py                # Custom Human-in-the-Loop provider for Streamlit
-├── cache.py               # SQLite semantic caching layer
-├── schemas.py             # Pydantic models (ConfidenceScore, FinancialAnalysis)
-├── pdf_export.py          # reportlab PDF generator
-├── main.py                # Streamlit UI entry point
-├── tests/                 # Unit tests (pytest)
-├── Dockerfile             # Container build instructions
-├── docker-compose.yml     # Multi-service orchestration
-├── requirements.txt       # Python dependencies
-└── .env.example           # Template for environment variables
-```
-
----
-
-## 🛣️ Roadmap (What's Next)
-
-✅ **Completed (v2.0):**
-- [x] CrewAI Flows (event-driven)
-- [x] Human-in-the-Loop review gate
-- [x] Confidence Scoring
-- [x] PDF Export (reportlab)
-- [x] Semantic Caching (SQLite)
-- [x] Dockerization
-
-**Planned (v3.0):**
-- [ ] **FastAPI Backend:** Replace Streamlit with a proper async API.
-- [ ] **Celery + Redis:** For background task dispatch (non-blocking).
-- [ ] **Batch Research:** Research multiple products in one go.
-- [ ] **Collaborative Review:** Share HITL review links with team members.
-
----
-
-## 🤝 Contributing
-
-This is a self-contained prototype, but feel free to fork and experiment! If you build a "Manufacturing Estimator" agent or improve the COGS validation, I'd love to see it.
-
+| Symptom | Fix |
+|---|---|
+| `ModuleNotFoundError: No module named 'crewai'` | You're using system Python — use `.\venv\Scripts\python -m ...` for every command |
+| Celery `MemoryError` / `PermissionError [WinError 5]` | Add `--pool=solo` to the worker command (Windows requirement) |
+| `Error 10061 connecting to localhost:6379` | Redis isn't running — start it (Quickstep step 1) |
+| OpenRouter 404 on a `:free` model | Slug retired — pick a live one, override via `.env` (see above) |
+| OpenRouter 429 daily limit | Wait for reset, or add $10 credits (cap becomes 1000/day) |
+| Frontend proxy `ECONNREFUSED :8000` | FastAPI isn't running — start Terminal 3 |
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
-
-
-
-**Built with:** ❤️ by [Shivam Singh](https://github.com/721189) — Market research shouldn't cost $10,000.
-
-
-**⭐ If this helped you, drop a star on GitHub! It helps other founders find it.**
+MIT — see [LICENSE](LICENSE).

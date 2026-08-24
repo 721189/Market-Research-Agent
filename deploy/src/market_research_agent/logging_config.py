@@ -11,7 +11,7 @@ def log_llm_call(provider: str, model: str, tokens: int) -> None:
     """Append a single LLM invocation line to ``llm_calls.log``.
 
     Args:
-        provider: The inference provider, e.g. ``"groq"``.
+        provider: The inference provider, e.g. ``"openrouter"`` or ``"groq"``.
         model: The model identifier, e.g. ``"llama-3.3-70b-versatile"``.
         tokens: Total tokens consumed by the call (accepted as ``int``).
     """

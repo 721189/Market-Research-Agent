@@ -42,7 +42,12 @@ def run_research_task(self, product_idea: str, mode: str = "deep"):
         usage = getattr(flow, "usage_metrics", None)
         tokens = int(getattr(usage, "total_tokens", 0) or 0)
         cfg = get_llm_config(mode)
-        provider_label = "deepinfra" if "deepinfra" in cfg["base_url"] else "groq"
+        if "deepinfra" in cfg["base_url"]:
+            provider_label = "deepinfra"
+        elif "openrouter" in cfg["base_url"]:
+            provider_label = "openrouter"
+        else:
+            provider_label = "groq"
         log_llm_call(provider=provider_label, model=cfg["model"], tokens=tokens)
     except Exception:
         # Logging must never sink a completed job.

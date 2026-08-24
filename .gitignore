@@ -24,3 +24,10 @@ llm_calls.log
 
 # Security / audit runtime artifacts
 audit.csv
+
+# Node / Next.js frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+.pytest_cache/

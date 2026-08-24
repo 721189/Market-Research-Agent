@@ -61,6 +61,7 @@ def init_session():
         "pending_flow": None,
         "results": None,
         "product_idea": "",
+        "editing": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -203,22 +204,16 @@ def run_flow(product_idea: str, mode: str):
         return
 
     if isinstance(result, HumanFeedbackPending) or st.session_state.get("stage") == "awaiting_review":
+        # HITL gate reached. Persist the paused flow in session state and
+        # rerun: the review UI (Approve / Edit / Reject) is rendered by main()
+        # below on *every* rerun so its buttons stay clickable. Rendering those
+        # buttons right here only ran on the "Run Research" click, which is why
+        # clicking them appeared to do nothing.
         st.session_state.pending_flow = flow
         st.session_state.product_idea = product_idea
         st.session_state.mode = mode
-        fin = parse_financials(flow.state.financials)
-        st.markdown("## ⏸️ Review Required")
-        if fin:
-            render_financial_cards(fin)
-        c1, c2, c3 = st.columns(3)
-        if c1.button("✅ Approve", type="primary"):
-            _resume("approved", product_idea, mode, statuses)
-        if c2.button("✏️ Edit & Approve"):
-            _resume("approved", product_idea, mode, statuses)
-        if c3.button("❌ Reject"):
-            st.session_state.stage = "idle"
-            st.session_state.pending_flow = None
-            st.error("Research rejected.")
+        st.session_state.editing = False
+        st.rerun()
         return
 
     _finalize(flow, product_idea)
@@ -228,16 +223,71 @@ def _resume(feedback: str, product_idea: str, mode: str, statuses):
     flow = st.session_state.pending_flow
     if not flow:
         st.error("No pending flow.")
-        return
+        return False
     try:
         asyncio.run(resume_research(flow, feedback))
     except Exception as exc:
         st.error(f"Resume failed: {exc}")
-        return
+        return False
     _finalize(flow, product_idea)
+    return True
 
 
-def _finalize(flow, product_idea: str):
+def render_review_ui():
+    """Render the HITL review screen with working Approve / Edit / Reject buttons."""
+    flow = st.session_state.pending_flow
+    if not flow:
+        st.error("No pending flow. Re-run research.")
+        return
+    product_idea = st.session_state.get("product_idea", "")
+    fin = parse_financials(flow.state.financials)
+    st.markdown("## ⏸️ Review Required")
+    if fin:
+        st.markdown("### Current financial analysis")
+        render_financial_cards(fin)
+
+    # --- Edit & Approve form (shown only after clicking Edit & Approve) ---
+    if st.session_state.get("editing") and fin:
+        st.markdown("### ✏️ Edit financials before approving")
+        with st.form("edit_financials_form"):
+            cogs = st.number_input("Estimated COGS ($)", value=float(fin.estimated_cogs), step=0.01)
+            retail = st.number_input("Suggested retail price ($)", value=float(fin.suggested_retail_price), step=0.01)
+            margin = st.number_input("Projected margin (%)", value=float(fin.projected_margin_percentage), step=0.1)
+            comp_prices = st.text_area(
+                "Competitor prices (one per line)", value="\n".join(fin.key_competitor_prices)
+            )
+            submitted = st.form_submit_button("💾 Save & Approve", type="primary")
+        if submitted:
+            # Apply edits to the pending flow state, then resume as approved.
+            flow.state.financials = {
+                "product_name": fin.product_name,
+                "estimated_cogs": cogs,
+                "suggested_retail_price": retail,
+                "projected_margin_percentage": margin,
+                "key_competitor_prices": [ln.strip() for ln in comp_prices.splitlines() if ln.strip()],
+            }
+            if _resume("approved", product_idea, "", None):
+                st.rerun()
+            return
+        if st.button("↩️ Cancel editing"):
+            st.session_state.editing = False
+            st.rerun()
+    else:
+        c1, c2, c3 = st.columns(3)
+        if c1.button("✅ Approve", type="primary"):
+            if _resume("approved", product_idea, "", None):
+                st.rerun()
+        if c2.button("✏️ Edit & Approve"):
+            st.session_state.editing = True
+            st.rerun()
+        if c3.button("❌ Reject"):
+            st.session_state.stage = "idle"
+            st.session_state.pending_flow = None
+            st.session_state.editing = False
+            st.warning("Research rejected. You can run a new query.")
+
+
+def _finalize(flow, product_idea: str = ""):
     results = {
         "product_idea": product_idea,
         "financials": flow.state.financials,
@@ -247,10 +297,11 @@ def _finalize(flow, product_idea: str):
     st.session_state.results = results
     st.session_state.stage = "complete"
     st.session_state.pending_flow = None
+    st.session_state.editing = False
     set_cached(product_idea, results)
     for n in TASK_ORDER:
         pass  # statuses may be out of scope
-    render_results(results)
+    return results
 
 
 def main():
@@ -260,7 +311,7 @@ def main():
 
     with st.sidebar:
         st.markdown("## 🧰 Setup")
-        for key, label in [("TAVILY_API_KEY", "Tavily"), ("GROQ_API_KEY", "Groq"), ("DEEPINFRA_API_KEY", "DeepInfra")]:
+        for key, label in [("TAVILY_API_KEY", "Tavily"), ("OPENROUTER_API_KEY", "OpenRouter"), ("GROQ_API_KEY", "Groq"), ("DEEPINFRA_API_KEY", "DeepInfra")]:
             ok = bool(os.getenv(key))
             cls = "key-badge-ok" if ok else "key-badge-missing"
             st.markdown(f'<span class="{cls}">{"✓" if ok else "✗"} {label}</span>', unsafe_allow_html=True)
@@ -273,7 +324,7 @@ def main():
     st.caption("Competitor scrape → Financials → HITL review → Launch brief + Confidence score")
 
     product_idea = st.text_area("Product idea", height=100)
-    ready = bool(os.getenv("TAVILY_API_KEY")) and bool(os.getenv("GROQ_API_KEY"))
+    ready = bool(os.getenv("TAVILY_API_KEY")) and (bool(os.getenv("OPENROUTER_API_KEY")) or bool(os.getenv("GROQ_API_KEY")))
 
     if st.button("🚀 Run Research", type="primary", disabled=not ready):
         if not product_idea.strip():
@@ -283,6 +334,9 @@ def main():
 
     if st.session_state.stage == "complete" and st.session_state.results:
         render_results(st.session_state.results)
+
+    if st.session_state.stage == "awaiting_review":
+        render_review_ui()
 
 
 if __name__ == "__main__":

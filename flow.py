@@ -43,10 +43,27 @@ async def run_crew_tasks(
 def _parse_outputs(result) -> dict[str, Any]:
     outputs = getattr(result, "tasks_output", []) or []
     out: dict[str, Any] = {}
+
+    def _norm(name: str) -> str:
+        return "".join(ch for ch in name.lower() if ch.isalnum())
+
+    expected = {
+        _norm("Competitor Scrape"): "Competitor Scrape",
+        _norm("Financial Margin"): "Financial Margin",
+        _norm("Product Launch Brief"): "Product Launch Brief",
+        _norm("Confidence Scoring"): "Confidence Scoring",
+    }
     for o in outputs:
         name = getattr(o, "name", None) or getattr(getattr(o, "task", None), "name", "")
+        key = expected.get(_norm(name))
+        if key is None:  # fuzzy fallback: match by substring either way
+            n = _norm(name)
+            for cand, orig in expected.items():
+                if n and (n in cand or cand in n):
+                    key = orig
+                    break
         raw = getattr(o, "raw", o)
-        out[name] = raw
+        out[key or name] = raw
     return out
 
 
@@ -157,6 +174,18 @@ async def auto_research_async(product_idea: str, mode: str = "deep"):
         await flow.kickoff_async()
     except HumanFeedbackPending:
         await flow.resume_async("approved")
+
+    # Guardrail: the resume must actually have run phase two. If the HITL
+    # resume silently no-ops (e.g. lost pending-feedback context), the state
+    # stays hollow — raise so Celery retries instead of persisting an
+    # empty-looking "success".
+    if flow.state.stage != "complete" or not str(flow.state.launch_brief or "").strip():
+        raise RuntimeError(
+            "Research pipeline incomplete after HITL resume: "
+            f"stage={flow.state.stage!r}, "
+            f"brief_len={len(str(flow.state.launch_brief or ''))}, "
+            f"financials_keys={list(flow.state.financials.keys())}"
+        )
 
     payload = {
         "product_idea": flow.state.product_idea,

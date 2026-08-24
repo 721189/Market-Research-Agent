@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Solar Intelligence — premium market-research design system
+   Deep-navy canvas + electric-lime accent, semantic traffic-light.
+   ============================================================ */
+
+@theme inline {
+  --color-canvas: #0b0e1a;
+  --color-surface: #141926;
+  --color-surface-2: #1b2136;
+  --color-ink: #eaf0ff;
+  --color-muted: #9aa7bc;
+  --color-faint: #5b6678;
+  --color-accent: #c8ff3c;
+  --color-accent-2: #ff6b3d;
+  --color-mint: #2ee67f;
+  --color-danger: #ff4d5d;
+  --color-border: rgba(154, 167, 188, 0.15);
+  --color-line: rgba(154, 167, 188, 0.15);
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root {
+  --background: #0b0e1a;
+  --foreground: #eaf0ff;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Frosted-glass panels */
+.glass {
+  background: rgba(20, 25, 38, 0.72);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(154, 167, 188, 0.15);
+}
+
+/* Signature electric-lime glow for primary CTAs */
+.lime-glow {
+  box-shadow: 0 0 22px rgba(200, 255, 60, 0.28), 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* Soft inner shadow so ink panels feel tactile, not flat */
+.ink-card {
+  background: linear-gradient(180deg, #1b2136 0%, #141926 100%);
+  border: 1px solid rgba(154, 167, 188, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* Animated confidence ring (SVG stroke-dashoffset) */
+.ring-fill {
+  transition: stroke-dashoffset 0.9s ease-out;
+}
+
+/* Subtle background grid for landing hero */
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(154, 167, 188, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 167, 188, 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 60%, transparent 100%);
+}
