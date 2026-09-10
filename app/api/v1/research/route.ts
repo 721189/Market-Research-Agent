@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "../../lib/firebase-admin";
-import { verifyAuth } from "../../lib/auth";
-import { executeResearchJob } from "../../lib/research/engine";
+import { adminDb } from "../../../lib/firebase-admin";
+import { verifyAuth } from "../../../lib/auth";
+import { executeResearchJob } from "../../../lib/research/engine";
+import { checkQuota } from "../../../lib/research/billing";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +12,11 @@ export async function POST(req: NextRequest) {
 
     if (!orgId || !product_idea) {
       return NextResponse.json({ error: "Missing orgId or product_idea" }, { status: 400 });
+    }
+
+    const hasQuota = await checkQuota(orgId);
+    if (!hasQuota) {
+      return NextResponse.json({ error: "Quota exceeded or insufficient funds." }, { status: 402 });
     }
 
     // Idempotency: Check if job with this idempotency key already exists for this org
@@ -38,7 +44,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Fire and forget (Worker simulation)
-    executeResearchJob(jobRef.id, orgId, product_idea, mode || "deep");
+    executeResearchJob(jobRef.id, orgId, user.uid, product_idea, mode || "deep");
 
     return NextResponse.json({ task_id: jobRef.id });
   } catch (err: any) {

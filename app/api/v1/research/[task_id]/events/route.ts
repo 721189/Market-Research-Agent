@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "../../../../lib/firebase-admin";
-import { verifyAuth } from "../../../../lib/auth";
+import { adminDb } from "../../../../../lib/firebase-admin";
+import { verifyAuth } from "../../../../../lib/auth";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ task_id: string }> }) {
   try {

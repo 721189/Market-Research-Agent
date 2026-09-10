@@ -1,6 +1,8 @@
 import { adminDb } from "../firebase-admin";
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { calculateUnitEconomics } from "./financial";
+import { logUsage } from "./billing";
+import { queuePdfGeneration } from "./pdf-worker";
 import crypto from "crypto";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -32,7 +34,10 @@ async function runCompetitorAnalysis(productIdea: string) {
     }
   });
 
-  return JSON.parse(response.text || "[]") as Array<{ name: string; price: number; url: string; weakness: string }>;
+  return {
+    data: JSON.parse(response.text || "[]") as Array<{ name: string; price: number; url: string; weakness: string }>,
+    tokens: response.usageMetadata?.totalTokenCount || 0
+  };
 }
 
 async function runFinancialExtraction(productIdea: string) {
@@ -56,7 +61,10 @@ async function runFinancialExtraction(productIdea: string) {
     }
   });
 
-  return JSON.parse(response.text || '{"estimatedCogs": 10, "targetMargin": 50}') as { estimatedCogs: number; targetMargin: number };
+  return {
+    data: JSON.parse(response.text || '{"estimatedCogs": 10, "targetMargin": 50}') as { estimatedCogs: number; targetMargin: number },
+    tokens: response.usageMetadata?.totalTokenCount || 0
+  };
 }
 
 async function synthesizeReport(productIdea: string, competitors: any[], economics: any) {
@@ -77,21 +85,50 @@ Produce two sections in markdown:
 
   return {
     brief: response.text || "No brief generated.",
-    competitors: competitors.map(c => `- **${c.name}** ($${c.price}): ${c.weakness}`).join("\\n")
+    competitors: competitors.map(c => `- **${c.name}** ($${c.price}): ${c.weakness}`).join("\\n"),
+    tokens: response.usageMetadata?.totalTokenCount || 0
   };
 }
 
-export async function executeResearchJob(jobId: string, orgId: string, productIdea: string, mode: string) {
+export async function executeResearchJob(jobId: string, orgId: string, userId: string, productIdea: string, mode: string) {
   const jobRef = adminDb.collection("organizations").doc(orgId).collection("researchJobs").doc(jobId);
+  const startTime = Date.now();
   
   try {
-    await jobRef.update({ status: "RESEARCHING", progress: 10, updatedAt: Date.now() });
+    // 0. Deduplication Check
+    const normalizedQuery = productIdea.trim().toLowerCase();
+    const hash = crypto.createHash('sha256').update(normalizedQuery).digest('hex');
+    
+    const duplicateQuery = await adminDb.collection("organizations").doc(orgId).collection("researchJobs")
+      .where("queryHash", "==", hash)
+      .where("status", "==", "COMPLETED")
+      .orderBy("createdAt", "desc")
+      .limit(1)
+      .get();
+      
+    if (!duplicateQuery.empty) {
+      const existing = duplicateQuery.docs[0].data();
+      await jobRef.update({ 
+        status: "COMPLETED", 
+        progress: 100, 
+        updatedAt: Date.now(),
+        result: existing.result,
+        deduplicatedFrom: existing.id
+      });
+      return;
+    }
+
+    await jobRef.update({ status: "RESEARCHING", progress: 10, updatedAt: Date.now(), queryHash: hash });
 
     // 1. Parallel Execution
-    const [competitors, financialInputs] = await Promise.all([
+    const [compRes, finRes] = await Promise.all([
       runCompetitorAnalysis(productIdea),
       runFinancialExtraction(productIdea)
     ]);
+    
+    const competitors = compRes.data;
+    const financialInputs = finRes.data;
+    let totalTokens = compRes.tokens + finRes.tokens;
 
     await jobRef.update({ status: "ANALYZING", progress: 50, updatedAt: Date.now() });
 
@@ -130,6 +167,9 @@ export async function executeResearchJob(jobId: string, orgId: string, productId
 
     // 4. Synthesis
     const finalReport = await synthesizeReport(productIdea, competitors, eco);
+    totalTokens += finalReport.tokens;
+    
+    const executionTimeMs = Date.now() - startTime;
     
     await jobRef.update({
       status: "COMPLETED",
@@ -158,6 +198,17 @@ export async function executeResearchJob(jobId: string, orgId: string, productId
         launch_brief: finalReport.brief,
         competitor_report: finalReport.competitors
       }
+    });
+    
+    // Trigger Background PDF Generation
+    queuePdfGeneration(jobId, orgId);
+
+    // 5. Cost Engine & Metering
+    await logUsage(orgId, userId, jobId, "research_run", {
+      tokens: totalTokens,
+      estimatedCost: (totalTokens / 1000) * 0.001, // Mock pricing
+      executionTimeMs,
+      models: ["gemini-2.5-flash", "gemini-2.5-pro"]
     });
 
   } catch (error: any) {

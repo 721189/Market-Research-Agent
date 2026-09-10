@@ -60,8 +60,8 @@ export default function DashboardPage() {
 
     const path =
       process.env.NEXT_PUBLIC_API_BASE && process.env.NEXT_PUBLIC_API_BASE.length > 0
-        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/research/${encodeURIComponent(job.taskId)}/events?orgId=${orgId}`
-        : `/api/research/${encodeURIComponent(job.taskId)}/events?orgId=${orgId}`;
+        ? `${process.env.NEXT_PUBLIC_API_BASE}/api/v1/research/${encodeURIComponent(job.taskId)}/events?orgId=${orgId}`
+        : `/api/v1/research/${encodeURIComponent(job.taskId)}/events?orgId=${orgId}`;
 
     const es = new EventSource(path);
     eventSourceRef.current = es;

@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  web:
+    build: 
+      context: .
+      target: runner
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+      - redis
+
+  api:
+    build:
+      context: .
+      target: runner
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_URL=redis://redis:6379
+      - DB_HOST=postgres
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+      - redis
+
+  worker-research:
+    build:
+      context: .
+      target: worker
+    command: npm run worker:research
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - DB_HOST=postgres
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    deploy:
+      replicas: 3
+    depends_on:
+      - postgres
+      - redis
+
+  worker-report:
+    build:
+      context: .
+      target: worker
+    command: npm run worker:report
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - S3_BUCKET=marketai-reports
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=marketai
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=marketai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

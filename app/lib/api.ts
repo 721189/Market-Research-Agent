@@ -30,8 +30,8 @@ export async function startResearch(
 ): Promise<{ task_id: string }> {
   const path =
     process.env.NEXT_PUBLIC_API_BASE && process.env.NEXT_PUBLIC_API_BASE.length > 0
-      ? `${process.env.NEXT_PUBLIC_API_BASE}/api/research`
-      : "/api/research";
+      ? `${process.env.NEXT_PUBLIC_API_BASE}/api/v1/research`
+      : "/api/v1/research";
   return jsonFetch<{ task_id: string }>(path, {
     method: "POST",
     body: JSON.stringify({ orgId, product_idea: productIdea, mode, idempotencyKey }),
@@ -42,11 +42,11 @@ export async function startResearch(
 export async function pollResearch(orgId: string, taskId: string): Promise<PollResponse> {
   const path =
     process.env.NEXT_PUBLIC_API_BASE && process.env.NEXT_PUBLIC_API_BASE.length > 0
-      ? `${process.env.NEXT_PUBLIC_API_BASE}/api/research/${encodeURIComponent(taskId)}?orgId=${orgId}`
-      : `/api/research/${encodeURIComponent(taskId)}?orgId=${orgId}`;
+      ? `${process.env.NEXT_PUBLIC_API_BASE}/api/v1/research/${encodeURIComponent(taskId)}?orgId=${orgId}`
+      : `/api/v1/research/${encodeURIComponent(taskId)}?orgId=${orgId}`;
   return jsonFetch<PollResponse>(path);
 }
 
 export function researchPdfUrl(orgId: string, taskId: string): string {
-  return `/api/research/${encodeURIComponent(taskId)}/pdf?orgId=${orgId}`;
+  return `/api/v1/research/${encodeURIComponent(taskId)}/pdf?orgId=${orgId}`;
 }
