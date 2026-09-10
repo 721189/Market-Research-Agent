@@ -1,107 +1,194 @@
-# MarketAI — Intelligence on Demand
+# MarketAI — Autonomous Market Intelligence & Strategic Analysis
 
-MarketAI is an enterprise-grade, AI-powered market research platform. It generates comprehensive, top-tier market research, competitor analysis, and launch briefs in under a minute by integrating real-time web search and advanced Large Language Models (LLMs). 
+**MarketAI** is an AI-powered market intelligence platform designed for founders, product managers, corporate strategists, and venture investors. It transforms raw product ideas, market questions, or competitor names into structured, consultant-grade market research briefs in seconds.
 
-## 🏗 System Architecture
+---
 
-The application is built on a highly scalable, distributed microservices architecture designed to handle concurrent research jobs with high reliability and performance.
+## 🎯 What MarketAI Does
 
-```text
-                                  CDN / WAF
+Building a comprehensive market research memo typically requires 20–40 hours of manual desk research: scanning competitor offerings, estimating market sizing (TAM/SAM/SOM), compiling customer sentiment, analyzing unit economics, and formatting go-to-market strategies.
+
+MarketAI automates this discovery lifecycle by combining real-time web search grounding with frontier LLMs and structured analytical workflows:
+
+- **Instant Market Sizing & Validation**: Quantitative TAM/SAM/SOM breakdowns, target ICP definitions, customer pain maps, and willingness-to-pay signals.
+- **Deep Competitor Intelligence**: Direct competitor matrices, feature gap analyses, pricing models, strategic moats, and defensive vulnerabilities.
+- **Unit Economics & Financial Projections**: Estimated CAC, LTV:CAC ratios, payback periods, gross margin benchmarks, and monetization roadmaps.
+- **Actionable Go-To-Market Plans**: Phased launch checklists (30/60/90 days), high-converting acquisition channels, positioning taglines, and regulatory risk mitigation.
+- **Live Visual Analytics & Export**: Dynamic interactive charts, real-time stage progress monitoring, and downloadable executive PDF memos.
+
+---
+
+## 💡 Real-World Use Cases
+
+| Persona | Workflow | Outcome |
+| :--- | :--- | :--- |
+| **Startup Founders** | Validate idea viability before writing code | Instant investor-ready brief with positioning, risk factors, and competitor teardowns |
+| **Product Managers** | Benchmark new feature concepts vs. industry | Feature-by-feature matrix, pricing tier comparisons, and customer friction points |
+| **Strategy & Ops** | Fast market sizing for corporate initiatives | Defensible TAM/SAM models, macro trends, and threat landscape overviews |
+| **VCs & Angels** | Rapid diligence on deal flow & pitches | Unbiased third-party assessment of claim veracity, market saturation, and defensibility |
+
+---
+
+## 🔍 Honest Capabilities & Limitations
+
+We believe in radical transparency about what AI-driven market intelligence can and cannot do:
+
+### ✅ What MarketAI Does Exceptionally Well
+- **Speed & Breadth**: Scans broad market segments and synthesizes hundreds of public data points into coherent executive frameworks within 30–60 seconds.
+- **Structural Rigor**: Uses battle-tested consulting frameworks (SWOT, Porter's Five Forces, Jobs-To-Be-Done, Unit Economics) to avoid unstructured chatter.
+- **Fast Hypothesis Testing**: Allows operators to iterate through 10 variations of a product angle in an afternoon.
+- **Multi-Tenant Security & Isolation**: Strict data segregation per organization with complete encryption at rest and in transit.
+
+### ⚠️ Known Limitations & Operator Considerations
+- **Private Data Blindspots**: MarketAI relies on public web data and generative reasoning. It cannot access proprietary internal databases, private company cap tables, or NDA-protected financials.
+- **Estimates vs. Audited Numbers**: Unit economics and market sizes are model projections grounded in publicly reported benchmarks; they should serve as directional baselines rather than audited accounting.
+- **Search Latency & Model Quotas**: Deep multi-agent synthesis involves heavy grounding calls and token generation. Under high load or strict external API rate limits, jobs may queue for processing.
+- **Dynamic Markets**: For rapidly evolving niche regulations or breaking news from the past 24 hours, supplementary human verification is always recommended.
+
+---
+
+## 🏗 Architecture & Infrastructure
+
+MarketAI is engineered as a robust, microservices-based full-stack platform:
+
+```
+                            [ Web Traffic / Users ]
+                                       │
+                                       ▼
+                       ┌──────────────────────────────┐
+                       │  Cloud Run / Nginx Ingress   │
+                       └──────────────┬───────────────┘
                                       │
-                                Load Balancer
-                                      │
-                    ┌─────────────────┴─────────────────┐
-                    │                                   │
-               Next.js × N                         FastAPI × N
-               (Frontend)                           (Backend API)
-                                                        │
-                         ┌──────────────────────────────┼──────────────────────────────┐
-                         │                              │                              │
-                    PostgreSQL                       Redis                       Object Storage
-               (Durable Persistence)        (Cache & Queue Broker)              (S3 / MinIO)
-                         │                              │                              │
-                         │                         Job Queues                          │
-                         │                              │                              │
-                         │           ┌──────────────────┼──────────────────┐           │
-                         │           │                  │                  │           │
-                         │       Research           Analysis              PDF          │
-                         │        Workers            Workers            Workers        │
+              ┌───────────────────────┴───────────────────────┐
+              ▼                                               ▼
+   ┌─────────────────────┐                         ┌─────────────────────┐
+   │ Next.js 15+ UI/Web  │                         │  FastAPI Backend    │
+   │  - App Router       │                         │  - REST API / Auth  │
+   │  - Recharts / D3    │                         │  - Rate Limiting    │
+   │  - SSE / Polling    │                         │  - Stripe Billing   │
+   └─────────────────────┘                         └──────────┬──────────┘
+                                                              │
+                                     ┌────────────────────────┴────────────────────────┐
+                                     ▼                                                 ▼
+                          ┌─────────────────────┐                           ┌─────────────────────┐
+                          │ PostgreSQL (Data)   │                           │ Redis (Queue/Cache) │
+                          │  - Tenants & Orgs   │                           │  - Distributed Lock │
+                          │  - Research Memos   │                           │  - Rate Windows     │
+                          │  - Audit Logs       │                           └──────────┬──────────┘
+                          └─────────────────────┘                                      │
+                                                                                       ▼
+                                                                            ┌─────────────────────┐
+                                                                            │ Celery Worker Pool  │
+                                                                            │  - Research Engine  │
+                                                                            │  - Analysis Engine  │
+                                                                            │  - PDF Generator    │
+                                                                            └──────────┬──────────┘
+                                                                                       │
+                                                                                       ▼
+                                                                            ┌─────────────────────┐
+                                                                            │ Object Storage (S3) │
+                                                                            │  - Generated PDFs   │
+                                                                            │  - Report Artifacts │
+                                                                            └─────────────────────┘
 ```
 
-## 🚀 Key Features
+---
 
-*   **Deep Research Engine**: Utilizes Google Search grounding and elite AI prompting (consultant-grade) to synthesize executive summaries, unit economics, SWOT analyses, and go-to-market strategies.
-*   **Durable Persistence**: Fully relational PostgreSQL database managing `users`, `organizations`, `research_jobs`, `subscriptions`, and `audit_events`.
-*   **Asynchronous Job Processing**: Celery distributed task queues backed by Redis to manage long-running Research, Analysis, and PDF generation workers asynchronously.
-*   **Enterprise Security & Auth**: Multi-layered security including JWT/Session handling, Role-Based Access Control (RBAC), tenant isolation, API versioning (`/v1/...`), and strict CORS/rate limiting.
-*   **Scalable Object Storage**: S3-compatible blob storage (e.g., AWS S3, MinIO) for storing immutable PDF reports, large evidence documents, and raw snapshots.
-*   **Top-Tier UX**: Custom Next.js 15+ App Router frontend featuring high-fidelity sweeping progress animations, robust React error boundaries, and a custom native Markdown renderer optimized for financial and strategic reporting.
-*   **Metering & Quota Engine**: Built-in subscription and entitlement layer to manage user/organization plan limits, LLM token tracking, API usage, and daily/monthly quotas.
+## 📦 Tech Stack
 
-## 🛠 Tech Stack
+- **Frontend**: Next.js 15+ (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons, Recharts.
+- **Backend API**: Python 3.10+, FastAPI, Pydantic v2, SQLAlchemy ORM.
+- **Async Workers**: Celery distributed task queue backed by Redis with worker auto-scaling.
+- **Database & Storage**: PostgreSQL 15, Redis 7, S3 / MinIO compatible object storage.
+- **AI Core**: Google Gemini Flash & Pro models via `@google/genai` with search grounding.
+- **Billing & Subscriptions**: Stripe Checkout, Billing Portal, and idempotent webhook lifecycle management.
+- **Telemetry & Observability**: Prometheus metrics (`/metrics`), W3C distributed tracing (`traceparent`), structured JSON logs, and real-time alert engine (`/alerts`).
 
-**Frontend (Client/UI)**
-*   Framework: [Next.js 15+ (App Router)](https://nextjs.org/)
-*   Language: TypeScript
-*   Styling: Tailwind CSS
-*   Markdown Rendering: Custom inline regex parser for fast, dependency-free text generation
-*   UI Animations: Custom CSS (`animate-sweep`) & Framer Motion (where applicable)
+---
 
-**Backend (API/Workers)**
-*   API Framework: [FastAPI](https://fastapi.tiangolo.com/) (Python)
-*   Task Queue: [Celery](https://docs.celeryq.dev/)
-*   Database ORM: SQLAlchemy / SQLModel
+## 🚦 Quick Start Guide
 
-**Infrastructure & Services**
-*   Relational DB: PostgreSQL
-*   Cache/Broker: Redis (Managed Redis recommended for production)
-*   Object Storage: AWS S3 / MinIO
-*   AI Model: Google Gemini API (via `@google/genai`)
+### 1. Prerequisites
+- **Node.js**: v18.x or higher
+- **Python**: v3.10 or higher
+- **PostgreSQL**: v14+
+- **Redis**: v6+
+- **Gemini API Key**: From [Google AI Studio](https://aistudio.google.com/)
 
-## 💻 Getting Started
+### 2. Environment Configuration
+Copy the `.env.example` file and populate your credentials:
 
-### Prerequisites
-*   Node.js (v18+)
-*   Python (3.10+)
-*   PostgreSQL
-*   Redis Server
+```bash
+cp .env.example .env.local
+```
 
-### Installation
+Essential variables:
+```env
+# AI Services
+GEMINI_API_KEY=your_gemini_api_key_here
 
-1. **Clone the repository and install frontend dependencies:**
-   ```bash
-   npm install
-   ```
+# Persistence & Caches
+DATABASE_URL=postgresql://marketai:password@localhost:5432/marketai
+REDIS_URL=redis://localhost:6379/0
 
-2. **Setup environment variables:**
-   Copy the example environment files and add your secrets (Gemini API keys, Database URLs, Redis URLs, S3 access keys).
-   ```bash
-   cp .env.example .env.local
-   ```
+# Storage & Security
+SECRET_KEY=your_secure_32_character_jwt_secret
+S3_ENDPOINT=http://localhost:9000
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin_secure_pw
 
-3. **Start the Frontend Development Server:**
-   ```bash
-   npm run dev
-   ```
-   Navigate to [http://localhost:3000](http://localhost:3000) in your browser.
+# Optional: Billing (Stripe)
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
 
-4. **Start the Backend API & Workers:**
-   *Navigate to the `/backend` directory (if structured internally)*
-   ```bash
-   uvicorn main:app --reload
-   celery -A tasks worker --loglevel=info
-   ```
+### 3. Run with Docker Compose (Recommended for Local Full-Stack)
+Launch the entire system (Frontend, API, Workers, Postgres, Redis, MinIO) in one command:
 
-## 🛡 API Versioning & Security
+```bash
+docker-compose up --build
+```
 
-All external integrations and internal UI calls route through the versioned API:
-*   `/v1/research`
-*   `/v1/research/{id}/events`
-*   `/v1/usage`
-*   `/v1/billing`
+Access services:
+- **Web Application**: `http://localhost:3000`
+- **Backend API Docs**: `http://localhost:8000/docs`
+- **Prometheus Metrics**: `http://localhost:8000/metrics`
+- **Health Check**: `http://localhost:8000/api/v1/health`
 
-Every request implements token-based authentication, strict body-size limits, execution timeouts, and rate limits managed globally via Redis distributed locks.
+### 4. Run Manually for Local Development
 
-## 🤝 Contributing
-For bug reports and feature requests, please open an issue on the repository. Adhere to the code quality guidelines established in the respective frontend and backend toolchains.
+#### Frontend:
+```bash
+npm install
+npm run dev
+```
+
+#### Backend API:
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn backend.app.main:app --reload --port 8000
+```
+
+#### Background Worker:
+```bash
+celery -A backend.app.workers.celery_app worker -Q research.quick,research.deep,analysis,reports --loglevel=info
+```
+
+---
+
+## 🛡 Security, Compliance & Multi-Tenancy
+
+- **Row-Level Organization Isolation**: All database queries enforce strict tenant scoping (`org_id`).
+- **Input Sanitization & Guardrails**: Defense against SSRF, prompt injections, and untrusted payload execution.
+- **Least Privilege Access**: Role-based permissions (`Owner`, `Admin`, `Member`, `Viewer`) gating billing, job deletion, and user invitations.
+- **Fail-Open Rate Limiting**: Token-bucket and sliding-window rate limiting designed with in-memory degradation if Redis experiences transient partitions.
+- **Disaster Recovery**: Built-in verification script (`scripts/disaster_recovery_drill.py`) verifying RTO (<15 min) and RPO (<5 min) operational readiness.
+
+---
+
+## 📄 License & Commercial Usage
+
+MarketAI is enterprise-ready software. All rights reserved. For commercial enterprise licensing, custom LLM fine-tuning, or on-prem air-gapped deployments, contact our enterprise solutions team.
