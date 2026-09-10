@@ -7,55 +7,61 @@ services:
       target: runner
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
     ports:
       - "3000:3000"
     depends_on:
       - api
-      - redis
 
   api:
     build:
-      context: .
-      target: runner
+      context: ./backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
     environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - REDIS_URL=redis://redis:6379
-      - DB_HOST=postgres
+      - DATABASE_URL=postgresql://marketai:secret@postgres:5432/marketai
+      - REDIS_URL=redis://redis:6379/0
     ports:
-      - "3001:3001"
+      - "8000:8000"
     depends_on:
       - postgres
       - redis
 
   worker-research:
     build:
-      context: .
-      target: worker
-    command: npm run worker:research
+      context: ./backend
+    command: celery -A backend.celery_app worker -Q research.quick,research.deep -c 4
     environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
-      - DB_HOST=postgres
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-    deploy:
-      replicas: 3
+      - DATABASE_URL=postgresql://marketai:secret@postgres:5432/marketai
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - postgres
       - redis
 
-  worker-report:
+  worker-analysis:
     build:
-      context: .
-      target: worker
-    command: npm run worker:report
+      context: ./backend
+    command: celery -A backend.celery_app worker -Q analysis -c 2
     environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
-      - S3_BUCKET=marketai-reports
+      - DATABASE_URL=postgresql://marketai:secret@postgres:5432/marketai
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
+      - postgres
       - redis
+
+  worker-pdf:
+    build:
+      context: ./backend
+    command: celery -A backend.celery_app worker -Q reports -c 2
+    environment:
+      - DATABASE_URL=postgresql://marketai:secret@postgres:5432/marketai
+      - REDIS_URL=redis://redis:6379/0
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - S3_ENDPOINT=http://minio:9000
+    depends_on:
+      - postgres
+      - redis
+      - minio
 
   redis:
     image: redis:alpine
@@ -72,6 +78,16 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
 
 volumes:
   pgdata:
