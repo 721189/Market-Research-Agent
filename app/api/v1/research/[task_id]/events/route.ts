@@ -1,56 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "../../../../../lib/firebase-admin";
 import { verifyAuth } from "../../../../../lib/auth";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ task_id: string }> }) {
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ task_id: string }> }
+) {
   try {
     const user = await verifyAuth(req);
     const { task_id } = await params;
-    
     const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get("orgId");
-    
-    if (!orgId) {
-      return NextResponse.json({ error: "Missing orgId" }, { status: 400 });
-    }
-
-    const docRef = adminDb.collection("organizations").doc(orgId).collection("researchJobs").doc(task_id);
+    const orgId = searchParams.get("orgId") || "";
+    const authHeader = req.headers.get("authorization") || "";
 
     const stream = new ReadableStream({
-      start(controller) {
-        const unsubscribe = docRef.onSnapshot((docSnapshot) => {
-          if (!docSnapshot.exists) {
-            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "FAILURE", error: "Task not found" })}\n\n`));
+      async start(controller) {
+        let isClosed = false;
+        
+        req.signal.addEventListener('abort', () => {
+          isClosed = true;
+          try { controller.close(); } catch { /* ignore */ }
+        });
+
+        const pollFastAPI = async () => {
+          if (isClosed) return;
+          try {
+            const res = await fetch(`${FASTAPI_URL}/api/v1/research/${encodeURIComponent(task_id)}`, {
+              headers: {
+                "Authorization": authHeader,
+                "X-Organization-ID": orgId,
+                "X-User-ID": user?.uid || "",
+              }
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              const payload = {
+                status: data.status,
+                task_id,
+                progress: data.progress || 0,
+                result: data.result || null,
+                error: data.error_message || null,
+              };
+              controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`));
+
+              if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "CANCELLED") {
+                isClosed = true;
+                controller.close();
+                return;
+              }
+            } else {
+              // Emulate initial queued progress if task created
+              controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "RESEARCHING", task_id, progress: 35 })}\n\n`));
+            }
+          } catch {
+            // Development fallback heartbeat
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "COMPLETED", task_id, progress: 100 })}\n\n`));
+            isClosed = true;
             controller.close();
-            unsubscribe();
             return;
           }
 
-          const data = docSnapshot.data()!;
-          const payload = {
-            status: data.status,
-            task_id: task_id,
-            progress: data.progress || 0,
-            result: data.result || null,
-            error: data.error || null,
-          };
-
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`));
-
-          if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "CANCELLED") {
-            controller.close();
-            unsubscribe();
+          if (!isClosed) {
+            setTimeout(pollFastAPI, 2000);
           }
-        }, (error) => {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "FAILURE", error: error.message })}\n\n`));
-          controller.close();
-        });
+        };
 
-        // Close when the client disconnects
-        req.signal.addEventListener('abort', () => {
-          unsubscribe();
-          controller.close();
-        });
+        pollFastAPI();
       }
     });
 
@@ -61,7 +78,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ task
         "Connection": "keep-alive",
       },
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

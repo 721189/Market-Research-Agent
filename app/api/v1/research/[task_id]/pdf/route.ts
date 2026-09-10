@@ -1,55 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "../../../../../lib/firebase-admin";
 import { verifyAuth } from "../../../../../lib/auth";
 
-export async function GET(req: NextRequest, { params }: { params: Promise<{ task_id: string }> }) {
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ task_id: string }> }
+) {
   try {
     const user = await verifyAuth(req);
     const { task_id } = await params;
-    
     const { searchParams } = new URL(req.url);
-    const orgId = searchParams.get("orgId");
-    
-    if (!orgId) {
-      return new NextResponse("Missing orgId", { status: 400 });
-    }
+    const orgId = searchParams.get("orgId") || "";
 
-    const jobDoc = await adminDb.collection("organizations").doc(orgId).collection("researchJobs").doc(task_id).get();
-    
-    if (!jobDoc.exists) {
-      return new NextResponse("Task not found", { status: 404 });
-    }
+    const authHeader = req.headers.get("authorization") || "";
 
-    const task = jobDoc.data()!;
-    
-    if (task.status !== "COMPLETED" || !task.result) {
-      return new NextResponse("Report not ready yet", { status: 409 });
-    }
+    try {
+      const fastApiResponse = await fetch(`${FASTAPI_URL}/api/v1/research/${encodeURIComponent(task_id)}`, {
+        headers: {
+          "Authorization": authHeader,
+          "X-Organization-ID": orgId,
+          "X-User-ID": user?.uid || "",
+        },
+      });
 
-    if (task.pdfStatus !== "READY" || !task.pdfArtifactId) {
-      return new NextResponse("PDF is still generating in the background. Please try again shortly.", { status: 202 });
-    }
-
-    // Fetch from "Object Storage" (Artifacts collection)
-    const artifactDoc = await adminDb.collection("organizations").doc(orgId).collection("artifacts").doc(task.pdfArtifactId).get();
-    if (!artifactDoc.exists) {
-      return new NextResponse("PDF Artifact missing.", { status: 404 });
-    }
-    
-    const artifact = artifactDoc.data()!;
-    const pdfBuffer = Buffer.from(artifact.data, "base64");
-    
-    const product = task.result.product_idea || "Product";
-    const filename = `${product.replace(/\s+/g, '_')}_report.pdf`;
-
-    return new NextResponse(pdfBuffer, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`
+      if (fastApiResponse.ok) {
+        const data = await fastApiResponse.json();
+        if (data.pdf_download_url) {
+          return NextResponse.redirect(data.pdf_download_url);
+        }
+        if (data.status !== "COMPLETED") {
+          return new NextResponse("Report still generating in background", { status: 202 });
+        }
       }
-    });
-  } catch (error: any) {
-    return new NextResponse(error.message, { status: 500 });
+    } catch (e: unknown) {
+      console.warn("FastAPI unreachable for PDF download redirect:", e);
+    }
+
+    return new NextResponse("Report is being prepared. Please retry shortly.", { status: 202 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Internal error";
+    return new NextResponse(message, { status: 500 });
   }
 }
-

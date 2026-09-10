@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { adminAuth } from "./firebase-admin";
 
 export async function verifyAuth(req: NextRequest) {
@@ -11,7 +11,7 @@ export async function verifyAuth(req: NextRequest) {
   try {
     const decodedToken = await adminAuth.verifyIdToken(token);
     return decodedToken;
-  } catch (error) {
+  } catch {
     throw new Error("Unauthorized: Invalid token");
   }
 }

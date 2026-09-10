@@ -163,7 +163,12 @@ export default function DashboardPage() {
   );
 }
 
-function HeaderBar({ running, user, onLogout }: { running: boolean, user: any, onLogout: () => void }) {
+interface UserLike {
+  email?: string | null;
+  uid?: string;
+}
+
+function HeaderBar({ running, user, onLogout }: { running: boolean; user: UserLike; onLogout: () => void }) {
   return (
     <nav className="glass sticky top-0 z-20">
       <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -212,6 +217,12 @@ function QueryHero({
         unit economics, and hands you a confidence-scored launch brief in under
         a minute.
       </p>
+
+      {error ? (
+        <div className="p-4 mb-6 rounded-xl bg-danger/10 border border-danger/30 text-danger text-sm">
+          {error}
+        </div>
+      ) : null}
 
       {phase === "idle" || phase === "error" ? (
         <div className="glass rounded-xl p-6">
@@ -364,7 +375,14 @@ function ResultsView({
   );
 }
 
-function FinancialPanel({ fin }: { fin: any }) {
+interface FinancialData {
+  estimated_cogs?: number;
+  suggested_retail_price?: number;
+  projected_margin_percentage?: number;
+  key_competitor_prices?: string[];
+}
+
+function FinancialPanel({ fin }: { fin: FinancialData | null | undefined }) {
   const cogs = fin?.estimated_cogs;
   const retail = fin?.suggested_retail_price;
   const margin = fin?.projected_margin_percentage;
@@ -407,7 +425,16 @@ function FinancialPanel({ fin }: { fin: any }) {
     </div>
   );
 }
-function ConfidencePanel({ conf }: { conf: any }) {
+
+interface ConfidenceData {
+  overall_score?: number;
+  source_reliability?: number;
+  evidence_coverage?: number;
+  consistency?: number;
+  summary?: string;
+}
+
+function ConfidencePanel({ conf }: { conf: ConfidenceData | null | undefined }) {
   const score = conf?.overall_score ?? 0;
   const color = score >= 75 ? "#2ee67f" : score >= 50 ? "#c8ff3c" : "#ff4d5d";
   const subs: [string, number][] = [

@@ -3,8 +3,6 @@
 import type { PollResponse } from "./types";
 import { auth } from "./firebase";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
-
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await auth.currentUser?.getIdToken();
   const res = await fetch(path, {
