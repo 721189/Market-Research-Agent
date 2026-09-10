@@ -1,11 +1,11 @@
 import { adminDb } from "../firebase-admin";
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { Type, Schema } from "@google/genai";
 import { calculateUnitEconomics } from "./financial";
 import { logUsage } from "./billing";
 import { queuePdfGeneration } from "./pdf-worker";
+import { executeLLM, TaskComplexity } from "./llm";
+import { calculateEvidenceDerivedConfidence, validateEvidence } from "./confidence";
 import crypto from "crypto";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 async function runCompetitorAnalysis(productIdea: string) {
   const schema: Schema = {
@@ -24,19 +24,13 @@ async function runCompetitorAnalysis(productIdea: string) {
 
   const prompt = `You are a market researcher. Find 3 to 5 real-world competitors for the following product idea: "${productIdea}". Estimate their standard retail price (in USD as a number). Provide their website URL and their biggest product weakness.`;
   
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      responseMimeType: "application/json",
-      responseSchema: schema,
-    }
-  });
+  // Intelligent model routing: "cheap" for extraction
+  const response = await executeLLM(prompt, "cheap", schema, [{ googleSearch: {} }]);
 
   return {
     data: JSON.parse(response.text || "[]") as Array<{ name: string; price: number; url: string; weakness: string }>,
-    tokens: response.usageMetadata?.totalTokenCount || 0
+    tokens: response.tokens,
+    model: response.model
   };
 }
 
@@ -52,18 +46,13 @@ async function runFinancialExtraction(productIdea: string) {
 
   const prompt = `As a supply chain and financial expert, estimate the unit Cost of Goods Sold (COGS) to manufacture a standard version of this product at scale: "${productIdea}". Also provide the standard industry gross margin percentage for this category.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: schema,
-    }
-  });
+  // Intelligent model routing: "medium" for analysis
+  const response = await executeLLM(prompt, "medium", schema);
 
   return {
     data: JSON.parse(response.text || '{"estimatedCogs": 10, "targetMargin": 50}') as { estimatedCogs: number; targetMargin: number },
-    tokens: response.usageMetadata?.totalTokenCount || 0
+    tokens: response.tokens,
+    model: response.model
   };
 }
 
@@ -78,15 +67,14 @@ Produce two sections in markdown:
 1. Executive Summary & Strategy
 2. Competitor Breakdown`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-pro",
-    contents: prompt,
-  });
+  // Intelligent model routing: "high_quality" for final synthesis and strategy
+  const response = await executeLLM(prompt, "high_quality");
 
   return {
     brief: response.text || "No brief generated.",
-    competitors: competitors.map(c => `- **${c.name}** ($${c.price}): ${c.weakness}`).join("\\n"),
-    tokens: response.usageMetadata?.totalTokenCount || 0
+    competitors: competitors.map((c: any) => `- **${c.name}** ($${c.price}): ${c.weakness}`).join("\\n"),
+    tokens: response.tokens,
+    model: response.model
   };
 }
 
@@ -139,15 +127,17 @@ export async function executeResearchJob(jobId: string, orgId: string, userId: s
     const batch = adminDb.batch();
     
     competitors.forEach(comp => {
+      const evidence = validateEvidence(comp.url || "https://example.com", new URL(comp.url.includes("http") ? comp.url : "https://example.com").hostname);
+      
       const evidenceRef = jobRef.collection("evidence").doc();
       batch.set(evidenceRef, {
         id: evidenceRef.id,
         jobId,
-        url: comp.url || "https://example.com",
-        domain: new URL(comp.url.includes("http") ? comp.url : "https://example.com").hostname,
+        url: evidence.url,
+        domain: evidence.domain,
         title: `Competitor Profile: ${comp.name}`,
-        retrievedAt: Date.now(),
-        authorityScore: 80,
+        retrievedAt: evidence.retrievedAt,
+        authorityScore: evidence.authorityScore,
       });
 
       const claimRef = jobRef.collection("claims").doc();
@@ -155,7 +145,7 @@ export async function executeResearchJob(jobId: string, orgId: string, userId: s
         id: claimRef.id,
         jobId,
         text: `${comp.name} is priced around $${comp.price} but suffers from: ${comp.weakness}`,
-        confidence: 90,
+        confidence: evidence.authorityScore > 50 ? 95 : 75,
         sourceIds: [evidenceRef.id],
         createdAt: Date.now()
       });
@@ -168,6 +158,9 @@ export async function executeResearchJob(jobId: string, orgId: string, userId: s
     // 4. Synthesis
     const finalReport = await synthesizeReport(productIdea, competitors, eco);
     totalTokens += finalReport.tokens;
+    
+    // Calculate Evidence-Derived Confidence
+    const confidenceScore = calculateEvidenceDerivedConfidence(competitors, eco);
     
     const executionTimeMs = Date.now() - startTime;
     
@@ -186,15 +179,7 @@ export async function executeResearchJob(jobId: string, orgId: string, userId: s
           projected_margin_percentage: eco.projectedMarginPercentage,
           key_competitor_prices: competitors.map(c => `${c.name}: $${c.price}`)
         },
-        confidence: {
-          overall_score: 85,
-          source_reliability: 80,
-          evidence_coverage: 90,
-          consistency: 85,
-          high_confidence_insights: ["Competitor Pricing Baseline", "Standard Industry COGS"],
-          low_confidence_insights: ["Exact Total Addressable Market (TAM)"],
-          summary: "Strong market viability if competitor weaknesses are addressed."
-        },
+        confidence: confidenceScore,
         launch_brief: finalReport.brief,
         competitor_report: finalReport.competitors
       }
