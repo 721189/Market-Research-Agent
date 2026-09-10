@@ -39,6 +39,11 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "https://marketai.app",
     ]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://marketai.app",
+    ]
     
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE_IP: int = 60

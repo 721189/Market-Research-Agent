@@ -23,6 +23,8 @@ export async function GET(
           try { controller.close(); } catch { /* ignore */ }
         });
 
+        let consecutiveErrors = 0;
+
         const pollFastAPI = async () => {
           if (isClosed) return;
           try {
@@ -35,6 +37,7 @@ export async function GET(
             });
 
             if (res.ok) {
+              consecutiveErrors = 0;
               const data = await res.json();
               const payload = {
                 status: data.status,
@@ -47,23 +50,35 @@ export async function GET(
 
               if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "CANCELLED") {
                 isClosed = true;
-                controller.close();
+                try { controller.close(); } catch { /* ignore */ }
                 return;
               }
-            } else {
-              // Emulate initial queued progress if task created
-              controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "RESEARCHING", task_id, progress: 35 })}\n\n`));
+            } else if (res.status === 404) {
+              // Task might still be initializing in Celery/DB
+              consecutiveErrors++;
+              if (consecutiveErrors > 10) {
+                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "FAILED", task_id, error: "Research job initialization timed out." })}\n\n`));
+                isClosed = true;
+                try { controller.close(); } catch { /* ignore */ }
+                return;
+              }
+              // Send keepalive ping
+              controller.enqueue(new TextEncoder().encode(`: keepalive\n\n`));
             }
           } catch {
-            // Development fallback heartbeat
-            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "COMPLETED", task_id, progress: 100 })}\n\n`));
-            isClosed = true;
-            controller.close();
-            return;
+            consecutiveErrors++;
+            if (consecutiveErrors > 8) {
+              controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ status: "FAILED", task_id, error: "Backend connectivity interrupted." })}\n\n`));
+              isClosed = true;
+              try { controller.close(); } catch { /* ignore */ }
+              return;
+            }
+            // Send heartbeat comment
+            controller.enqueue(new TextEncoder().encode(`: heartbeat retry=${consecutiveErrors}\n\n`));
           }
 
           if (!isClosed) {
-            setTimeout(pollFastAPI, 2000);
+            setTimeout(pollFastAPI, 1500);
           }
         };
 

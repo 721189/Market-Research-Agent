@@ -7,18 +7,48 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from contextlib import asynccontextmanager
 from backend.app.config import settings
-from backend.app.db.session import engine, Base
+from backend.app.db.session import engine, Base, wait_for_db
+from backend.app.services.storage import storage_service
 from backend.app.api.routes import health, research, reports, usage, billing
 
 # Setup enterprise logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
 logger = logging.getLogger("marketai.api")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup sequence
+    logger.info("Verifying database connectivity on startup...")
+    db_connected = wait_for_db(max_retries=5, initial_delay=1.0)
+    if db_connected:
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables initialized/verified successfully.")
+        except Exception as e:
+            logger.warning(f"Database table initialization warning (may already exist via Alembic): {e}")
+    else:
+        logger.error("Database connection could not be established after maximum retries. Operating in degraded state.")
+
+    # Storage initialization
+    storage_service.resilient_init(max_retries=3)
+
+    yield
+
+    # Graceful shutdown sequence
+    logger.info("Shutting down API server and disposing database connection pool...")
+    try:
+        engine.dispose()
+        logger.info("Database pool disposed cleanly.")
+    except Exception as e:
+        logger.warning(f"Error disposing database pool: {e}")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="2.0.0",
-    description="Authoritative Enterprise Market Research Analysis Engine"
+    description="Authoritative Enterprise Market Research Analysis Engine",
+    lifespan=lifespan
 )
 
 # CORS configuration
@@ -96,12 +126,3 @@ app.include_router(research.router)
 app.include_router(reports.router)
 app.include_router(usage.router)
 app.include_router(billing.router)
-
-@app.on_event("startup")
-def on_startup():
-    logger.info("Initializing database tables...")
-    try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables initialized successfully.")
-    except Exception as e:
-        logger.warning(f"Database table initialization warning (may already exist via Alembic): {e}")

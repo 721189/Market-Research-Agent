@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from urllib.parse import urlparse
 import datetime
+import logging
 
 from backend.app.research.planner import generate_research_plan
 from backend.app.research.competitor import extract_competitors
@@ -15,9 +16,38 @@ from backend.app.research.confidence import confidence_engine
 from backend.app.research.validators import research_validator
 from backend.app.research.synthesis import synthesize_strategic_report
 from backend.app.models.evidence import Evidence, Claim
-from backend.app.models.research import ResearchEvent
+from backend.app.models.research import ResearchEvent, ResearchJob
+from backend.app.services.rate_limiter import rate_limiter
+
+logger = logging.getLogger("marketai.engine")
+
+class JobCancelledException(Exception):
+    """Raised when a research job has been cancelled by user or tenant administrator."""
+    pass
 
 class ResearchEngine:
+    def _is_job_cancelled(self, research_id: str, db: Session = None) -> bool:
+        """
+        Dual-layer fast cancellation check:
+        1. Redis ephemeral cancellation key (sub-millisecond)
+        2. Database status
+        """
+        try:
+            if rate_limiter.redis and rate_limiter.redis.exists(f"job_cancel:{research_id}"):
+                return True
+        except Exception:
+            pass
+
+        if db:
+            try:
+                job_status = db.query(ResearchJob.status).filter(ResearchJob.id == research_id).scalar()
+                if job_status in ("CANCELLED", "CANCELLING"):
+                    return True
+            except Exception as e:
+                logger.warning(f"Error checking cancellation status for {research_id}: {e}")
+
+        return False
+
     async def run(
         self,
         product_idea: str,
@@ -26,24 +56,41 @@ class ResearchEngine:
         db: Session = None
     ) -> Dict[str, Any]:
         """
-        Coordinates the 7-stage research pipeline and returns structured data.
+        Coordinates the 7-stage research pipeline with granular cancellation checks.
         """
         # Helper to emit progress events
-        def emit_event(stage: str, progress: int, message: str):
+        def emit_event(stage: str, progress: int, message: str, level: str = "INFO"):
             if db:
-                event = ResearchEvent(
-                    job_id=research_id,
-                    stage=stage,
-                    progress=progress,
-                    message=message,
-                    level="INFO"
-                )
-                db.add(event)
-                db.commit()
+                try:
+                    event = ResearchEvent(
+                        job_id=research_id,
+                        stage=stage,
+                        progress=progress,
+                        message=message,
+                        level=level
+                    )
+                    db.add(event)
+                    # Also update job progress percentage
+                    job = db.query(ResearchJob).filter(ResearchJob.id == research_id).first()
+                    if job:
+                        job.progress = progress
+                    db.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to record research event: {e}")
+
+        def check_cancellation(checkpoint_name: str):
+            if self._is_job_cancelled(research_id, db):
+                emit_event("cancelled", 0, f"Execution halted at checkpoint: {checkpoint_name}", level="WARNING")
+                logger.info(f"Research job {research_id} halted due to cancellation at {checkpoint_name}")
+                raise JobCancelledException(f"Job {research_id} was cancelled during {checkpoint_name}")
+
+        # Checkpoint 0: Pre-flight
+        check_cancellation("preflight")
 
         # Stage 1: Planning
         emit_event("planning", 10, "Formulating targeted research hypotheses and questions")
         plan = await generate_research_plan(product_idea)
+        check_cancellation("post-planning")
 
         # Stage 2: Parallel research
         emit_event("researching", 30, "Executing multi-dimensional web retrieval (competitor, market, pricing, customer)")
@@ -58,6 +105,7 @@ class ResearchEngine:
             pricing_task,
             customer_task
         )
+        check_cancellation("post-retrieval")
 
         # Stage 3: Evidence extraction & persistence
         emit_event("evidence_extraction", 50, "Extracting and indexing verifiable evidence and claims")
@@ -101,9 +149,12 @@ class ResearchEngine:
         if db:
             db.commit()
 
+        check_cancellation("post-evidence")
+
         # Stage 4: Validation
         emit_event("validation", 65, "Validating data integrity and cross-referencing sources")
         is_comp_valid, _ = research_validator.validate_competitor_data(competitors)
+        check_cancellation("post-validation")
 
         # Stage 5: Deterministic Financial Analysis
         emit_event("financial_analysis", 75, "Calculating deterministic unit economics and scenarios")
@@ -111,12 +162,14 @@ class ResearchEngine:
         estimated_cogs = round(suggested_price * 0.28, 2) # Typical 72% gross margin baseline
         financial_scenarios = financial_engine.generate_scenarios(suggested_price, estimated_cogs)
         base_fin = financial_scenarios["base_case"]
+        check_cancellation("post-financials")
 
         # Stage 6: Strategic Synthesis
         emit_event("synthesis", 85, "Synthesizing executive brief and management strategy")
         synthesis = await synthesize_strategic_report(
             product_idea, competitors, market, pricing, customer, base_fin
         )
+        check_cancellation("post-synthesis")
 
         # Stage 7: QA & Confidence Scoring
         emit_event("confidence_evaluation", 95, "Evaluating objective confidence metric across evidence base")

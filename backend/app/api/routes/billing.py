@@ -1,4 +1,6 @@
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import stripe
 from backend.app.db.session import get_db
@@ -10,6 +12,11 @@ from backend.app.services.entitlement import PLAN_LIMITS
 from backend.app.config import settings
 
 router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
+
+class CheckoutSessionRequest(BaseModel):
+    plan: str
+    success_url: str
+    cancel_url: str
 
 @router.get("/subscription")
 def get_subscription(
@@ -31,16 +38,64 @@ def get_subscription(
         "limits": plan_conf
     }
 
+@router.post("/create-checkout-session")
+def create_checkout_session(
+    payload: CheckoutSessionRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db)
+):
+    auth.require_permission(PERM_BILLING_MANAGE)
+
+    if payload.plan not in ("starter", "pro", "enterprise"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid plan selected")
+
+    if not settings.STRIPE_SECRET_KEY:
+        # Development fallback session
+        return {
+            "session_id": f"dev_session_{auth.organization.id}_{payload.plan}",
+            "url": f"{payload.success_url}?session_id=mock_success"
+        }
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            client_reference_id=auth.organization.id,
+            metadata={
+                "org_id": auth.organization.id,
+                "plan": payload.plan,
+                "user_id": auth.user.id
+            },
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": f"MarketAI {payload.plan.capitalize()} Plan",
+                        "description": f"Market intelligence subscription ({payload.plan} tier)"
+                    },
+                    "unit_amount": 4900 if payload.plan == "starter" else (19900 if payload.plan == "pro" else 99900),
+                    "recurring": {"interval": "month"}
+                },
+                "quantity": 1
+            }],
+            success_url=payload.success_url,
+            cancel_url=payload.cancel_url
+        )
+        return {"session_id": session.id, "url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Stripe session creation failed: {str(e)}")
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """
-    Stripe webhook handler with signature verification.
+    Robust Stripe webhook handler with signature verification,
+    idempotent event processing, and automatic subscription state synchronization.
     """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
     if not settings.STRIPE_WEBHOOK_SECRET or not settings.STRIPE_SECRET_KEY:
-        # Graceful development acknowledgment
         return {"received": True, "mode": "development_unconfigured"}
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -49,22 +104,110 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Webhook signature verification failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Webhook signature verification failed: {str(e)}"
+        )
 
     event_type = event["type"]
+    event_id = event["id"]
     event_obj = event["data"]["object"]
 
-    # Record BillingEvent idempotently
-    existing_event = db.query(BillingEvent).filter(BillingEvent.stripe_event_id == event["id"]).first()
+    # 1. Idempotency check: record BillingEvent
+    existing_event = db.query(BillingEvent).filter(BillingEvent.stripe_event_id == event_id).first()
     if existing_event:
-        return {"received": True, "status": "duplicate"}
+        return {"received": True, "status": "duplicate_ignored"}
 
-    # Handle subscription updates
-    if event_type == "customer.subscription.updated":
+    # Resolve organization ID
+    org_id = None
+    if "metadata" in event_obj and event_obj["metadata"].get("org_id"):
+        org_id = event_obj["metadata"]["org_id"]
+    elif event_obj.get("client_reference_id"):
+        org_id = event_obj.get("client_reference_id")
+    elif event_obj.get("customer"):
+        sub_by_cust = db.query(Subscription).filter(Subscription.stripe_customer_id == event_obj["customer"]).first()
+        if sub_by_cust:
+            org_id = sub_by_cust.org_id
+
+    # Fallback to first active org if unresolvable
+    if not org_id:
+        fallback_org = db.query(Organization).first()
+        org_id = fallback_org.id if fallback_org else "unknown"
+
+    # Save billing event record
+    billing_log = BillingEvent(
+        org_id=org_id,
+        event_type=event_type,
+        amount_cents=event_obj.get("amount_total") or event_obj.get("amount_paid") or 0,
+        currency=event_obj.get("currency", "usd"),
+        status=event_obj.get("status", "succeeded"),
+        stripe_event_id=event_id,
+        event_payload=event_obj
+    )
+    db.add(billing_log)
+
+    # 2. Lifecycle state machines
+    if event_type == "checkout.session.completed":
+        target_org_id = event_obj.get("client_reference_id") or (event_obj.get("metadata", {}).get("org_id"))
+        purchased_plan = event_obj.get("metadata", {}).get("plan", "starter")
+        stripe_cust_id = event_obj.get("customer")
+        stripe_sub_id = event_obj.get("subscription")
+
+        if target_org_id:
+            org = db.query(Organization).filter(Organization.id == target_org_id).first()
+            if org:
+                org.plan = purchased_plan
+
+            sub = db.query(Subscription).filter(Subscription.org_id == target_org_id).first()
+            if not sub:
+                sub = Subscription(
+                    org_id=target_org_id,
+                    plan_id=purchased_plan,
+                    status="active",
+                    stripe_customer_id=stripe_cust_id,
+                    stripe_subscription_id=stripe_sub_id
+                )
+                db.add(sub)
+            else:
+                sub.plan_id = purchased_plan
+                sub.status = "active"
+                sub.stripe_customer_id = stripe_cust_id
+                sub.stripe_subscription_id = stripe_sub_id
+
+    elif event_type in ("customer.subscription.updated", "customer.subscription.created"):
+        stripe_sub_id = event_obj.get("id")
+        sub_status = event_obj.get("status", "active")
+        cancel_at_period_end = event_obj.get("cancel_at_period_end", False)
+        current_period_end_ts = event_obj.get("current_period_end")
+
+        sub = db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_sub_id).first()
+        if sub:
+            sub.status = sub_status
+            sub.cancel_at_period_end = cancel_at_period_end
+            if current_period_end_ts:
+                sub.current_period_end = datetime.datetime.utcfromtimestamp(current_period_end_ts)
+
+    elif event_type == "customer.subscription.deleted":
         stripe_sub_id = event_obj.get("id")
         sub = db.query(Subscription).filter(Subscription.stripe_subscription_id == stripe_sub_id).first()
         if sub:
-            sub.status = event_obj.get("status", sub.status)
-            db.commit()
+            sub.status = "canceled"
+            org = db.query(Organization).filter(Organization.id == sub.org_id).first()
+            if org:
+                # Downgrade to free tier upon subscription termination
+                org.plan = "free"
 
-    return {"received": True}
+    elif event_type == "invoice.payment_failed":
+        stripe_cust_id = event_obj.get("customer")
+        sub = db.query(Subscription).filter(Subscription.stripe_customer_id == stripe_cust_id).first()
+        if sub:
+            sub.status = "past_due"
+
+    elif event_type == "invoice.payment_succeeded":
+        stripe_cust_id = event_obj.get("customer")
+        sub = db.query(Subscription).filter(Subscription.stripe_customer_id == stripe_cust_id).first()
+        if sub:
+            sub.status = "active"
+
+    db.commit()
+    return {"received": True, "event_type": event_type}

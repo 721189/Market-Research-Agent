@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 from backend.app.models.organization import Organization
-from backend.app.models.billing import UsageEvent
+from backend.app.models.billing import UsageEvent, Subscription
 import datetime
 
 PLAN_LIMITS: Dict[str, Dict[str, Any]] = {
@@ -38,6 +38,16 @@ PLAN_LIMITS: Dict[str, Dict[str, Any]] = {
 class EntitlementService:
     @classmethod
     def can_create_research(cls, org: Organization, mode: str, db: Session) -> bool:
+        # Check tenant organization lifecycle status
+        if org.status != "active":
+            return False
+
+        # Check subscription status for paid tiers
+        if org.plan != "free":
+            sub = db.query(Subscription).filter(Subscription.org_id == org.id).first()
+            if sub and sub.status in ("past_due", "unpaid", "canceled"):
+                return False
+
         plan_conf = PLAN_LIMITS.get(org.plan, PLAN_LIMITS["free"])
         
         # Check mode entitlement
@@ -62,6 +72,8 @@ class EntitlementService:
 
     @classmethod
     def can_use_api(cls, org: Organization) -> bool:
+        if org.status != "active":
+            return False
         plan_conf = PLAN_LIMITS.get(org.plan, PLAN_LIMITS["free"])
         return plan_conf.get("can_use_api", False)
 

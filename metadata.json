@@ -1,0 +1,8 @@
+{
+  "name": "MarketAI - Autonomous Market Research & Intelligence Engine",
+  "description": "Production-grade multi-tenant market intelligence pipeline featuring deterministic unit economics, multi-dimensional web evidence harvesting, and real-time streaming progress.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
