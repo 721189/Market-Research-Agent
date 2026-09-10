@@ -16,19 +16,33 @@ async function runCompetitorAnalysis(productIdea: string) {
         name: { type: Type.STRING },
         price: { type: Type.NUMBER },
         url: { type: Type.STRING },
+        features: { type: Type.ARRAY, items: { type: Type.STRING } },
+        marketPositioning: { type: Type.STRING },
+        targetAudience: { type: Type.STRING },
         weakness: { type: Type.STRING },
       },
-      required: ["name", "price", "url", "weakness"]
+      required: ["name", "price", "url", "features", "marketPositioning", "targetAudience", "weakness"]
     }
   };
 
-  const prompt = `You are a market researcher. Find 3 to 5 real-world competitors for the following product idea: "${productIdea}". Estimate their standard retail price (in USD as a number). Provide their website URL and their biggest product weakness.`;
+  const prompt = `You are an elite market intelligence researcher. Conduct an exhaustive competitive analysis for the following product idea: "${productIdea}". 
+  Use the Google Search tool to find 3 to 5 real-world, highly relevant competitors. 
+  For each competitor, extract:
+  - Standard retail price (in USD as a number).
+  - Valid website URL.
+  - Top 3 distinct product features.
+  - How they position themselves in the market (e.g., luxury, budget, eco-friendly).
+  - Their primary target audience demographics.
+  - Their most critical product or business weakness (e.g., based on reviews or missing features).`;
   
-  // Intelligent model routing: "cheap" for extraction
-  const response = await executeLLM(prompt, "cheap", schema, [{ googleSearch: {} }]);
+  // Intelligent model routing: "cheap" for extraction, but we use search so we need accuracy.
+  const response = await executeLLM(prompt, "medium", schema, [{ googleSearch: {} }]);
 
   return {
-    data: JSON.parse(response.text || "[]") as Array<{ name: string; price: number; url: string; weakness: string }>,
+    data: JSON.parse(response.text || "[]") as Array<{ 
+      name: string; price: number; url: string; 
+      features: string[]; marketPositioning: string; targetAudience: string; weakness: string 
+    }>,
     tokens: response.tokens,
     model: response.model
   };
@@ -57,22 +71,36 @@ async function runFinancialExtraction(productIdea: string) {
 }
 
 async function synthesizeReport(productIdea: string, competitors: any[], economics: any) {
-  const prompt = `Write a comprehensive launch brief for this product idea: "${productIdea}".
+  const prompt = `You are an elite Strategy Consultant from a top-tier management consulting firm (e.g., McKinsey, BCG). 
+  Write a comprehensive, highly detailed market research report and launch brief for this product idea: "${productIdea}".
   
-Here is the data:
-Competitors: ${JSON.stringify(competitors)}
+Here is the extracted market data and deterministic financial calculations:
+Competitors: ${JSON.stringify(competitors, null, 2)}
 Economics: COGS $${economics.estimatedCogs}, Suggested Retail $${economics.suggestedRetailPrice}, Margin ${economics.projectedMarginPercentage}%
 
-Produce two sections in markdown:
-1. Executive Summary & Strategy
-2. Competitor Breakdown`;
+Produce a sophisticated markdown document strictly formatted with the following sections:
+## 1. Executive Summary & Market Overview
+(Provide a high-level overview, industry trends, and the core value proposition)
+
+## 2. Competitive Landscape & SWOT Analysis
+(Provide an aggregate SWOT analysis of the market based on the competitor data provided)
+
+## 3. Target Demographics & Go-to-Market Strategy
+(Who is the buyer? How should we reach them?)
+
+## 4. Unit Economics Breakdown
+(Explain the financial viability based on the provided COGS, Retail Price, and Margin)
+
+Do NOT invent new competitor names or financial numbers. Use only the data provided above.`;
 
   // Intelligent model routing: "high_quality" for final synthesis and strategy
   const response = await executeLLM(prompt, "high_quality");
 
   return {
     brief: response.text || "No brief generated.",
-    competitors: competitors.map((c: any) => `- **${c.name}** ($${c.price}): ${c.weakness}`).join("\\n"),
+    competitors: competitors.map((c: any) => 
+      `- **${c.name}** ($${c.price}): Targets ${c.targetAudience}. Positioned as ${c.marketPositioning}. Weakness: ${c.weakness} (Features: ${c.features.join(", ")})`
+    ).join("\\n"),
     tokens: response.tokens,
     model: response.model
   };

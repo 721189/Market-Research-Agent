@@ -57,6 +57,15 @@ body {
   transition: stroke-dashoffset 0.9s ease-out;
 }
 
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@utility animate-sweep {
+  animation: sweep 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 /* Subtle background grid for landing hero */
 .hero-grid {
   background-image:

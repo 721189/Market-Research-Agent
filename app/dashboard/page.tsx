@@ -133,6 +133,24 @@ export default function DashboardPage() {
           error={job.error}
         />
 
+        {job.phase === "error" ? (
+          <div className="glass border border-danger/30 rounded-xl p-6 mb-12 flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center text-danger shrink-0 mt-1">
+              <span className="text-xl">⚠️</span>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-danger mb-1">Research Failed</h3>
+              <p className="text-muted leading-relaxed">{job.error}</p>
+              <button 
+                onClick={() => setJob({ ...job, phase: "idle" })}
+                className="mt-4 text-sm font-medium text-accent hover:underline"
+              >
+                Try a different query
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {job.phase === "running" ? (
           <ProgressCard taskId={job.taskId} currentStep={currentStep} progress={job.progress} />
         ) : null}
@@ -228,7 +246,6 @@ function QueryHero({
               Launch Research →
             </button>
           </div>
-          {error ? <p className="mt-3 text-danger">⚠️ {error}</p> : null}
         </div>
       ) : null}
     </section>
@@ -245,18 +262,32 @@ function ProgressCard({
   progress?: number;
 }) {
   return (
-    <div className="glass rounded-xl p-6 mb-12">
-      <div className="flex justify-between items-center mb-5">
-        <p className="text-muted text-sm">
-          Crew is running ·{" "}
-          <span className="text-accent font-mono">task {taskId?.slice(0, 8)}</span>
-        </p>
-        <p className="text-muted font-mono text-xs">{progress}%</p>
+    <div className="glass rounded-xl p-8 mb-12 shadow-xl border border-accent/20 relative overflow-hidden">
+      {/* Background sweep animation */}
+      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-accent/5 to-transparent w-[200%] animate-sweep pointer-events-none" />
+      
+      <div className="flex justify-between items-center mb-6 relative z-10">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-xl font-bold font-display text-ink">Analyzing Market</h3>
+          <p className="text-muted text-sm flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+            Live Task ID: <span className="font-mono text-xs">{taskId?.slice(0, 8) || "..."}</span>
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <p className="text-accent font-mono text-2xl font-bold">{progress}%</p>
+          <p className="text-muted text-xs uppercase tracking-wider">Complete</p>
+        </div>
       </div>
-      <StepStepper current={currentStep} />
-      <div className="mt-5 flex items-center gap-3">
-        <span className="w-3 h-3 rounded-full bg-accent animate-pulse" />
-        <p className="text-ink font-medium">{STEPS[currentStep]?.label} …</p>
+      
+      <div className="relative z-10 bg-surface-2 rounded-xl p-6">
+        <StepStepper current={currentStep} />
+        <div className="mt-6 flex items-center gap-3">
+          <div className="w-5 h-5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+          <p className="text-ink font-medium tracking-wide">
+            {STEPS[currentStep]?.label || "Finalizing"}...
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -445,27 +476,63 @@ function Ring({ score, color }: { score: number; color: string }) {
 }
 
 function Markdown({ text }: { text: string }) {
-  const lines = text.split("\n").filter(Boolean);
-  return (
-    <div className="space-y-3 text-sm leading-relaxed text-ink">
-      {lines.map((line, i) => {
-        if (line.startsWith("## ")) {
-          return (
-            <h4 className="text-base font-semibold mt-2" key={i}>
-              {line.slice(3)}
-            </h4>
-          );
-        }
-        if (line.startsWith("- ") || line.startsWith("• ")) {
-          return (
-            <div className="flex gap-2 text-muted pl-4" key={i}>
-              <span className="text-accent">▸</span>
-              <span>{line.slice(2)}</span>
-            </div>
-          );
-        }
-        return <p className="text-muted" key={i}>{line}</p>;
-      })}
-    </div>
-  );
+  const lines = text.split("\n");
+  const rendered: React.ReactNode[] = [];
+  
+  let inList = false;
+  let listItems: React.ReactNode[] = [];
+
+  const parseInline = (str: string) => {
+    // Bold: **text**
+    const parts = str.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={i} className="font-semibold text-ink">{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+  };
+
+  const flushList = () => {
+    if (inList && listItems.length > 0) {
+      rendered.push(<ul key={`ul-${rendered.length}`} className="list-none space-y-2 mb-4">{listItems}</ul>);
+      listItems = [];
+      inList = false;
+    }
+  };
+
+  lines.forEach((line, index) => {
+    const l = line.trim();
+    if (!l) {
+      flushList();
+      rendered.push(<div key={index} className="h-2" />);
+      return;
+    }
+
+    if (l.startsWith("### ")) {
+      flushList();
+      rendered.push(<h3 key={index} className="text-lg font-bold mt-4 mb-2 text-ink">{parseInline(l.slice(4))}</h3>);
+    } else if (l.startsWith("## ")) {
+      flushList();
+      rendered.push(<h2 key={index} className="text-xl font-bold font-display mt-6 mb-3 text-accent">{parseInline(l.slice(3))}</h2>);
+    } else if (l.startsWith("# ")) {
+      flushList();
+      rendered.push(<h1 key={index} className="text-2xl font-bold font-display mt-8 mb-4 text-ink">{parseInline(l.slice(2))}</h1>);
+    } else if (l.startsWith("- ") || l.startsWith("* ")) {
+      inList = true;
+      listItems.push(
+        <li key={index} className="flex gap-2 text-muted leading-relaxed">
+          <span className="text-accent shrink-0 mt-0.5">▸</span>
+          <span>{parseInline(l.slice(2))}</span>
+        </li>
+      );
+    } else {
+      flushList();
+      rendered.push(<p key={index} className="text-muted leading-relaxed mb-3">{parseInline(l)}</p>);
+    }
+  });
+
+  flushList();
+
+  return <div className="text-sm leading-relaxed text-ink">{rendered}</div>;
 }
