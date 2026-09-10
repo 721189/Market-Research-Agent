@@ -1,180 +1,107 @@
-# 🕵️ Market Research Agent
+# MarketAI — Intelligence on Demand
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
-![CrewAI](https://img.shields.io/badge/CrewAI-1.15-FF4D5D)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
-![Celery](https://img.shields.io/badge/Celery-5.4-37814A?logo=celery&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
-![TailwindCSS](https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss)
+MarketAI is an enterprise-grade, AI-powered market research platform. It generates comprehensive, top-tier market research, competitor analysis, and launch briefs in under a minute by integrating real-time web search and advanced Large Language Models (LLMs). 
 
-**Multi-agent market research on autopilot.** Describe a product idea — a crew of
-three AI agents scrapes your top competitors, models realistic unit economics,
-pauses for **your review**, then delivers a confidence-scored go-to-market brief
-with a stakeholder-ready PDF export.
+## 🏗 System Architecture
 
-## ✨ Features
+The application is built on a highly scalable, distributed microservices architecture designed to handle concurrent research jobs with high reliability and performance.
 
-- 🤖 **3-agent CrewAI pipeline** — Trend Scraper → Financial Analyst → Product Director
-- ⏸️ **Human-in-the-loop review gate** — approve, edit, or reject the numbers before anything ships
-- 🧮 **Structured unit economics** — COGS, retail price, gross margin (Pydantic-validated)
-- 🎯 **Confidence scoring** — 0–100 trust score with per-dimension breakdown
-- 📄 **PDF reports** — McKinsey-style one-click export
-- ⚡ **Async by design** — FastAPI + Celery + Redis; the UI never blocks
-- 🖥️ **Modern web dashboard** — Next.js 16 + Tailwind v4, animated pipeline stepper & confidence gauge
-- 🔀 **Cost-aware LLM routing** — OpenRouter primary (free models) with automatic Groq fallback; slugs configurable via `.env`
-
-## 🏗️ Architecture
-
-```
-┌────────────────┐   /api/* proxy   ┌────────────────────┐   enqueue   ┌───────────────────┐
-│ Next.js UI     │ ───────────────► │ FastAPI :8000      │ ──────────► │ Celery worker     │
-│ localhost:3000 │ ◄─────────────── │ POST /research     │ ◄────────── │ CrewAI pipeline   │
-└────────────────┘    poll JSON     │ GET /research/{id} │   results   │ OpenRouter→Groq   │
-                                    └────────────────────┘             └───────────────────┘
-                                             ▲                                │
-                                             │ PDF bytes                      ▼
-                                    GET /research/{id}/pdf           Redis broker (:6379)
+```text
+                                  CDN / WAF
+                                      │
+                                Load Balancer
+                                      │
+                    ┌─────────────────┴─────────────────┐
+                    │                                   │
+               Next.js × N                         FastAPI × N
+               (Frontend)                           (Backend API)
+                                                        │
+                         ┌──────────────────────────────┼──────────────────────────────┐
+                         │                              │                              │
+                    PostgreSQL                       Redis                       Object Storage
+               (Durable Persistence)        (Cache & Queue Broker)              (S3 / MinIO)
+                         │                              │                              │
+                         │                         Job Queues                          │
+                         │                              │                              │
+                         │           ┌──────────────────┼──────────────────┐           │
+                         │           │                  │                  │           │
+                         │       Research           Analysis              PDF          │
+                         │        Workers            Workers            Workers        │
 ```
 
-## 📁 Project structure
+## 🚀 Key Features
 
-```
-├── api/main.py            # FastAPI app: research endpoints + PDF export + CORS
-├── frontend/              # Next.js 16 + Tailwind v4 web dashboard
-│   └── app/               # landing page, /dashboard, lib/api.ts client
-├── flow.py                # CrewAI Flow orchestration + HITL gate
-├── agents.py              # agent factory + LLM construction
-├── tasks.py               # task defs + FinancialAnalysis schema
-├── routing.py             # cost-aware LLM routing (OpenRouter/Groq/DeepInfra)
-├── hitl.py                # human-in-the-loop feedback provider
-├── pdf_export.py          # reportlab PDF generation
-├── worker/                # Celery app + research task
-├── main.py                # legacy Streamlit UI (still functional)
-└── tests/                 # pytest suite
-```
-## 🚀 Quickstart
+*   **Deep Research Engine**: Utilizes Google Search grounding and elite AI prompting (consultant-grade) to synthesize executive summaries, unit economics, SWOT analyses, and go-to-market strategies.
+*   **Durable Persistence**: Fully relational PostgreSQL database managing `users`, `organizations`, `research_jobs`, `subscriptions`, and `audit_events`.
+*   **Asynchronous Job Processing**: Celery distributed task queues backed by Redis to manage long-running Research, Analysis, and PDF generation workers asynchronously.
+*   **Enterprise Security & Auth**: Multi-layered security including JWT/Session handling, Role-Based Access Control (RBAC), tenant isolation, API versioning (`/v1/...`), and strict CORS/rate limiting.
+*   **Scalable Object Storage**: S3-compatible blob storage (e.g., AWS S3, MinIO) for storing immutable PDF reports, large evidence documents, and raw snapshots.
+*   **Top-Tier UX**: Custom Next.js 15+ App Router frontend featuring high-fidelity sweeping progress animations, robust React error boundaries, and a custom native Markdown renderer optimized for financial and strategic reporting.
+*   **Metering & Quota Engine**: Built-in subscription and entitlement layer to manage user/organization plan limits, LLM token tracking, API usage, and daily/monthly quotas.
 
-### 0. Prerequisites
-- Python 3.11+ with the project virtualenv at `venv/`
-- Node.js LTS (for the frontend)
-- A Redis server reachable on `localhost:6379` (options below)
+## 🛠 Tech Stack
 
-```powershell
-python -m venv venv
-.\venv\Scripts\pip install -r requirements.txt
-copy .env.example .env        # then paste your keys
-```
+**Frontend (Client/UI)**
+*   Framework: [Next.js 15+ (App Router)](https://nextjs.org/)
+*   Language: TypeScript
+*   Styling: Tailwind CSS
+*   Markdown Rendering: Custom inline regex parser for fast, dependency-free text generation
+*   UI Animations: Custom CSS (`animate-sweep`) & Framer Motion (where applicable)
 
-### 1. Redis — pick ONE
+**Backend (API/Workers)**
+*   API Framework: [FastAPI](https://fastapi.tiangolo.com/) (Python)
+*   Task Queue: [Celery](https://docs.celeryq.dev/)
+*   Database ORM: SQLAlchemy / SQLModel
 
-| Option | How |
-|---|---|
-| **Portable ZIP** (simplest) | [tporadowski/redis releases](https://github.com/tporadowski/redis/releases) → extract → `.\redis-server.exe` |
-| **Memurai** | Windows-native Redis-compatible service; auto-starts on 6379 |
-| **Docker** | `docker run -d --name mra-redis -p 6379:6379 redis:7-alpine` |
-| **WSL** | `wsl` → `sudo apt install redis-server && sudo service redis-server start` |
+**Infrastructure & Services**
+*   Relational DB: PostgreSQL
+*   Cache/Broker: Redis (Managed Redis recommended for production)
+*   Object Storage: AWS S3 / MinIO
+*   AI Model: Google Gemini API (via `@google/genai`)
 
-> Windows has no official native `redis-server` binary — that's expected.
+## 💻 Getting Started
 
-### 2. Celery worker
+### Prerequisites
+*   Node.js (v18+)
+*   Python (3.10+)
+*   PostgreSQL
+*   Redis Server
 
-```powershell
-.\venv\Scripts\python -m celery -A worker.research_task worker --loglevel=info --pool=solo
-```
+### Installation
 
-> ⚠️ **`--pool=solo` is required on Windows.** The default prefork pool crashes with
-> `MemoryError` / `PermissionError [WinError 5]` under billiard's spawn model.
+1. **Clone the repository and install frontend dependencies:**
+   ```bash
+   npm install
+   ```
 
-### 3. FastAPI
+2. **Setup environment variables:**
+   Copy the example environment files and add your secrets (Gemini API keys, Database URLs, Redis URLs, S3 access keys).
+   ```bash
+   cp .env.example .env.local
+   ```
 
-```powershell
-.\venv\Scripts\python -m uvicorn api.main:app --reload
-```
+3. **Start the Frontend Development Server:**
+   ```bash
+   npm run dev
+   ```
+   Navigate to [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 4. Frontend
+4. **Start the Backend API & Workers:**
+   *Navigate to the `/backend` directory (if structured internally)*
+   ```bash
+   uvicorn main:app --reload
+   celery -A tasks worker --loglevel=info
+   ```
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
+## 🛡 API Versioning & Security
 
-Open **http://localhost:3000/dashboard**, describe a product idea, and launch.
-The dev server proxies `/api/*` to FastAPI on `:8000` (no CORS setup needed).
+All external integrations and internal UI calls route through the versioned API:
+*   `/v1/research`
+*   `/v1/research/{id}/events`
+*   `/v1/usage`
+*   `/v1/billing`
 
-> The legacy Streamlit UI still works too: `.\venv\Scripts\streamlit run main.py`
+Every request implements token-based authentication, strict body-size limits, execution timeouts, and rate limits managed globally via Redis distributed locks.
 
-## 🔑 Environment variables
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `OPENROUTER_API_KEY` | yes* | Primary LLM provider ([get a key](https://openrouter.ai/keys)) |
-| `TAVILY_API_KEY` | yes | Live web search for competitor scraping |
-| `GROQ_API_KEY` | fallback | Used automatically when the OpenRouter key is missing |
-| `DEEPINFRA_API_KEY` | no | Enables Batch API mode (~20% cheaper) |
-| `OPENROUTER_SCRAPE_MODEL` | no | Override the cheap scrape model slug |
-| `OPENROUTER_DEEP_MODEL` | no | Override the financial/brief model slug |
-
-\* Runs fall back to Groq when OpenRouter is unconfigured.
-
-### Free-tier survival guide
-
-OpenRouter rotates its free models frequently and caps free usage:
-
-- **404 "model not found"** → that free slug was retired. Browse live ones at
-  [openrouter.ai/models?max_price=0](https://openrouter.ai/models?max_price=0),
-  then set `OPENROUTER_SCRAPE_MODEL` / `OPENROUTER_DEEP_MODEL` in `.env`.
-- **429 "free-models-per-day"** → you hit the 50 requests/day cap. Each research
-  run makes many LLM calls (tool loops), so expect ~2–5 runs/day. Adding
-  **$10 credits raises the cap to 1000/day** and unlocks cheap paid models.
-
-Current defaults (verified live): scrape = `nvidia/nemotron-3.5-lightning:free`,
-deep = `nvidia/nemotron-3-super-120b-a12b:free`.
-
-## 🔌 API reference
-
-| Method | Path | Body | Returns |
-|---|---|---|---|
-| POST | `/research` | `{"product_idea": "...", "mode": "quick\\|deep\\|batch"}` | `{"task_id": "..."}` |
-| GET | `/research/{id}` | — | `{status, result?, error?}` — poll until `SUCCESS` |
-| GET | `/research/{id}/pdf` | — | PDF report download (409 until complete) |
-
-Interactive docs: <http://localhost:8000/docs>
-
-## 🔄 The HITL flow
-
-1. **Competitor Scrape** — Tavily-powered web research on the top 5 rivals
-2. **Financial Margin** — structured COGS / retail / margin analysis
-3. **⏸️ Review gate** — the pipeline pauses; approve, edit the numbers, or reject
-4. **Launch Brief + Confidence** — final GTM brief scored 0–100 across source
-   reliability, evidence coverage, and consistency
-
-The headless API path auto-approves step 3 and hard-fails (triggering a Celery
-retry) if phase two doesn't fully complete — no hollow reports.
-
-## 🐳 Docker Compose
-
-```bash
-docker compose up --build   # redis + worker + api (+ legacy streamlit app)
-```
-
-## 🧪 Testing
-
-```powershell
-.\venv\Scripts\python -m pytest tests/ -q
-```
-
-## 🛠️ Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `ModuleNotFoundError: No module named 'crewai'` | You're using system Python — use `.\venv\Scripts\python -m ...` for every command |
-| Celery `MemoryError` / `PermissionError [WinError 5]` | Add `--pool=solo` to the worker command (Windows requirement) |
-| `Error 10061 connecting to localhost:6379` | Redis isn't running — start it (Quickstep step 1) |
-| OpenRouter 404 on a `:free` model | Slug retired — pick a live one, override via `.env` (see above) |
-| OpenRouter 429 daily limit | Wait for reset, or add $10 credits (cap becomes 1000/day) |
-| Frontend proxy `ECONNREFUSED :8000` | FastAPI isn't running — start Terminal 3 |
-
-## 📄 License
-
-MIT — see [LICENSE](LICENSE).
+## 🤝 Contributing
+For bug reports and feature requests, please open an issue on the repository. Adhere to the code quality guidelines established in the respective frontend and backend toolchains.
