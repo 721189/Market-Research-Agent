@@ -1,0 +1,113 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the system",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Organization": {
+      "title": "Organization",
+      "description": "A tenant/organization in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "name": { "type": "string", "maxLength": 256 },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "ownerId", "createdAt"]
+    },
+    "OrganizationMember": {
+      "title": "Organization Member",
+      "description": "A member of an organization with RBAC",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "role": { "type": "string", "enum": ["admin", "member", "viewer"] },
+        "joinedAt": { "type": "number" }
+      },
+      "required": ["userId", "role", "joinedAt"]
+    },
+    "ResearchJob": {
+      "title": "Research Job",
+      "description": "A top-level research request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "organizationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "creatorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "productIdea": { "type": "string", "maxLength": 1000 },
+        "mode": { "type": "string", "enum": ["quick", "deep", "batch"] },
+        "status": { "type": "string", "enum": ["QUEUED", "RUNNING", "RESEARCHING", "ANALYZING", "WAITING_FOR_REVIEW", "FINALIZING", "GENERATING_REPORT", "COMPLETED", "FAILED", "CANCELLED"] },
+        "progress": { "type": "number" },
+        "idempotencyKey": { "type": "string", "maxLength": 256 },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "organizationId", "creatorId", "productIdea", "mode", "status", "createdAt", "updatedAt"]
+    },
+    "Evidence": {
+      "title": "Evidence Source",
+      "description": "Raw evidence gathered for a job",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "jobId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "url": { "type": "string", "maxLength": 1000 },
+        "domain": { "type": "string", "maxLength": 256 },
+        "title": { "type": "string", "maxLength": 512 },
+        "contentHash": { "type": "string", "maxLength": 256 },
+        "authorityScore": { "type": "number" },
+        "retrievedAt": { "type": "number" }
+      },
+      "required": ["id", "jobId", "url", "domain", "retrievedAt"]
+    },
+    "Claim": {
+      "title": "Research Claim",
+      "description": "A structured claim linked to evidence",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "jobId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\\\-]+$" },
+        "text": { "type": "string", "maxLength": 2000 },
+        "confidence": { "type": "number" },
+        "sourceIds": { "type": "array", "items": { "type": "string", "maxLength": 128 } },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "jobId", "text", "confidence", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Global user profiles"
+    },
+    "organizations/{orgId}": {
+      "schema": { "$ref": "#/entities/Organization" },
+      "description": "Tenant workspaces"
+    },
+    "organizations/{orgId}/members/{userId}": {
+      "schema": { "$ref": "#/entities/OrganizationMember" },
+      "description": "RBAC memberships within an organization"
+    },
+    "organizations/{orgId}/researchJobs/{jobId}": {
+      "schema": { "$ref": "#/entities/ResearchJob" },
+      "description": "Research jobs scoped to a tenant"
+    },
+    "organizations/{orgId}/researchJobs/{jobId}/evidence/{evidenceId}": {
+      "schema": { "$ref": "#/entities/Evidence" },
+      "description": "Evidence gathered for a specific job"
+    },
+    "organizations/{orgId}/researchJobs/{jobId}/claims/{claimId}": {
+      "schema": { "$ref": "#/entities/Claim" },
+      "description": "Claims extracted for a specific job"
+    }
+  }
+}

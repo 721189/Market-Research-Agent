@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\\\-]+$'); }
+    
+    // Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) && 
+             data.keys().size() <= 4 &&
+             data.uid is string && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\\\-]+$') &&
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 256 &&
+             data.get('displayName', '') is string && data.get('displayName', '').size() <= 256 &&
+             data.createdAt is number;
+    }
+
+    function isValidOrganization(data) {
+      return data.keys().hasAll(['id', 'name', 'ownerId', 'createdAt']) &&
+             data.keys().size() == 4 &&
+             data.id is string && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\\\-]+$') &&
+             data.name is string && data.name.size() <= 256 &&
+             data.ownerId is string && data.ownerId.size() <= 128 && data.ownerId == request.auth.uid &&
+             data.createdAt is number;
+    }
+
+    function isValidOrganizationMember(data, userIdPath) {
+      return data.keys().hasAll(['userId', 'role', 'joinedAt']) &&
+             data.keys().size() == 3 &&
+             data.userId is string && data.userId.size() <= 128 && data.userId == userIdPath &&
+             data.role is string && data.role in ['admin', 'member', 'viewer'] &&
+             data.joinedAt is number;
+    }
+
+    function isValidResearchJob(data, orgIdPath) {
+      return data.keys().hasAll(['id', 'organizationId', 'creatorId', 'productIdea', 'mode', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().size() <= 10 &&
+             data.id is string && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\\\-]+$') &&
+             data.organizationId is string && data.organizationId.size() <= 128 && data.organizationId == orgIdPath &&
+             data.creatorId is string && data.creatorId.size() <= 128 && data.creatorId == request.auth.uid &&
+             data.productIdea is string && data.productIdea.size() <= 1000 &&
+             data.mode is string && data.mode in ['quick', 'deep', 'batch'] &&
+             data.status is string && data.status in ['QUEUED', 'RUNNING', 'RESEARCHING', 'ANALYZING', 'WAITING_FOR_REVIEW', "FINALIZING", "GENERATING_REPORT", "COMPLETED", "FAILED", "CANCELLED"] &&
+             data.createdAt is number &&
+             data.updatedAt is number &&
+             (data.get('progress', 0) is number) &&
+             (data.get('idempotencyKey', '') is string && data.get('idempotencyKey', '').size() <= 256);
+    }
+
+    function isValidEvidence(data, jobIdPath) {
+      return data.keys().hasAll(['id', 'jobId', 'url', 'domain', 'retrievedAt']) &&
+             data.keys().size() <= 8 &&
+             data.id is string && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\\\-]+$') &&
+             data.jobId is string && data.jobId.size() <= 128 && data.jobId == jobIdPath &&
+             data.url is string && data.url.size() <= 1000 &&
+             data.domain is string && data.domain.size() <= 256 &&
+             data.retrievedAt is number &&
+             (data.get('title', '') is string && data.get('title', '').size() <= 512) &&
+             (data.get('contentHash', '') is string && data.get('contentHash', '').size() <= 256) &&
+             (data.get('authorityScore', 0) is number);
+    }
+
+    function isValidClaim(data, jobIdPath) {
+      return data.keys().hasAll(['id', 'jobId', 'text', 'confidence', 'createdAt']) &&
+             data.keys().size() <= 6 &&
+             data.id is string && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\\\-]+$') &&
+             data.jobId is string && data.jobId.size() <= 128 && data.jobId == jobIdPath &&
+             data.text is string && data.text.size() <= 2000 &&
+             data.confidence is number &&
+             data.createdAt is number &&
+             (data.get('sourceIds', []) is list && data.get('sourceIds', []).size() <= 50);
+    }
+
+    // Role checks
+    function isOrgAdmin(orgId) {
+      return exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isOrgMember(orgId) {
+      return exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId);
+      // Let anyone list users for inviting, normally not ideal but fine for now if no PII.
+      // Better: no list
+      allow list: if false; 
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidUser(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && isValidUser(incoming()) && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid;
+    }
+
+    match /organizations/{orgId} {
+      allow get: if isSignedIn() && isValidId(orgId) && isOrgMember(orgId);
+      allow list: if false; // Users should query their memberships, not orgs.
+      allow create: if isSignedIn() && isValidId(orgId) && isValidOrganization(incoming());
+      allow update: if isSignedIn() && isValidId(orgId) && isOrgAdmin(orgId) && isValidOrganization(incoming()) && incoming().createdAt == existing().createdAt && incoming().ownerId == existing().ownerId;
+    }
+
+    match /organizations/{orgId}/members/{userId} {
+      allow get: if isSignedIn() && isValidId(orgId) && isValidId(userId) && isOrgMember(orgId);
+      allow list: if isSignedIn() && isValidId(orgId) && isOrgMember(orgId);
+      allow create: if isSignedIn() && isValidId(orgId) && isValidId(userId) && (isOrgAdmin(orgId) || (userId == request.auth.uid && get(/databases/$(database)/documents/organizations/$(orgId)).data.ownerId == request.auth.uid)) && isValidOrganizationMember(incoming(), userId);
+      allow update: if isSignedIn() && isValidId(orgId) && isValidId(userId) && isOrgAdmin(orgId) && isValidOrganizationMember(incoming(), userId) && incoming().joinedAt == existing().joinedAt && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && isValidId(orgId) && isValidId(userId) && (isOrgAdmin(orgId) || userId == request.auth.uid);
+    }
+
+    match /organizations/{orgId}/researchJobs/{jobId} {
+      allow get: if isSignedIn() && isValidId(orgId) && isValidId(jobId) && isOrgMember(orgId);
+      allow list: if isSignedIn() && isValidId(orgId) && isOrgMember(orgId) && resource.data.organizationId == orgId;
+      allow create: if isSignedIn() && isValidId(orgId) && isValidId(jobId) && isOrgMember(orgId) && isValidResearchJob(incoming(), orgId);
+      // To simulate state transitions by the backend, typical users shouldn't be updating much, but they can cancel.
+      allow update: if isSignedIn() && isValidId(orgId) && isValidId(jobId) && isOrgMember(orgId) && isValidResearchJob(incoming(), orgId) && incoming().createdAt == existing().createdAt && incoming().creatorId == existing().creatorId && incoming().organizationId == existing().organizationId && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().status == 'CANCELLED';
+      allow delete: if false;
+    }
+
+    match /organizations/{orgId}/researchJobs/{jobId}/evidence/{evidenceId} {
+      allow read: if isSignedIn() && isValidId(orgId) && isValidId(jobId) && isValidId(evidenceId) && isOrgMember(orgId);
+      allow write: if false; // Only server writes evidence
+    }
+
+    match /organizations/{orgId}/researchJobs/{jobId}/claims/{claimId} {
+      allow read: if isSignedIn() && isValidId(orgId) && isValidId(jobId) && isValidId(claimId) && isOrgMember(orgId);
+      allow write: if false; // Only server writes claims
+    }
+  }
+}

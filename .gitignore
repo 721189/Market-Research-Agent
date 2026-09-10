@@ -1,33 +1,41 @@
-# Database cache files
-*.db
-*.sqlite
-*.sqlite3
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Temp files
-temp_*
-*.tmp
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Python
-__pycache__/
-*.pyc
-.venv/
-venv/
-.env
+# testing
+/coverage
 
-# IDE
-.vscode/
-.idea/
+# next.js
+/.next/
+/out/
 
-# Async worker / API runtime artifacts
-*.log
-llm_calls.log
+# production
+/build
 
-# Security / audit runtime artifacts
-audit.csv
+# misc
+.DS_Store
+*.pem
 
-# Node / Next.js frontend
-frontend/node_modules/
-frontend/.next/
-frontend/out/
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
 *.tsbuildinfo
-.pytest_cache/
+next-env.d.ts
