@@ -2,6 +2,7 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import Optional
 import stripe
 from backend.app.db.session import get_db
 from backend.app.api.deps import get_auth_context, AuthContext
@@ -17,6 +18,9 @@ class CheckoutSessionRequest(BaseModel):
     plan: str
     success_url: str
     cancel_url: str
+
+class PortalSessionRequest(BaseModel):
+    return_url: str
 
 @router.get("/subscription")
 def get_subscription(
@@ -35,6 +39,7 @@ def get_subscription(
         "current_period_start": sub.current_period_start if sub else None,
         "current_period_end": sub.current_period_end if sub else None,
         "cancel_at_period_end": sub.cancel_at_period_end if sub else False,
+        "stripe_customer_id": sub.stripe_customer_id if sub else None,
         "limits": plan_conf
     }
 
@@ -58,6 +63,14 @@ def create_checkout_session(
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
+        # Look up existing customer ID
+        sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
+        customer_kwargs = {}
+        if sub and sub.stripe_customer_id:
+            customer_kwargs["customer"] = sub.stripe_customer_id
+        else:
+            customer_kwargs["customer_email"] = auth.user.email
+
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
@@ -80,17 +93,105 @@ def create_checkout_session(
                 "quantity": 1
             }],
             success_url=payload.success_url,
-            cancel_url=payload.cancel_url
+            cancel_url=payload.cancel_url,
+            **customer_kwargs
         )
         return {"session_id": session.id, "url": session.url}
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e.user_message or e))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Stripe session creation failed: {str(e)}")
+
+@router.post("/create-portal-session")
+def create_customer_portal_session(
+    payload: PortalSessionRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db)
+):
+    """
+    Creates a Stripe Customer Portal session for subscription management, invoice downloads, and card updates.
+    """
+    auth.require_permission(PERM_BILLING_MANAGE)
+
+    sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
+    if not sub or not sub.stripe_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active Stripe customer found for this organization. Upgrade to a paid plan first."
+        )
+
+    if not settings.STRIPE_SECRET_KEY:
+        return {"url": f"{payload.return_url}?portal=mock"}
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        portal_session = stripe.billing_portal.Session.create(
+            customer=sub.stripe_customer_id,
+            return_url=payload.return_url
+        )
+        return {"url": portal_session.url}
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e.user_message or e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Portal creation failed: {str(e)}")
+
+@router.post("/cancel-subscription")
+def cancel_subscription(
+    auth: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db)
+):
+    """Schedules subscription cancellation at the end of the current billing cycle."""
+    auth.require_permission(PERM_BILLING_MANAGE)
+
+    sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
+    if not sub or not sub.stripe_subscription_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active subscription found")
+
+    if settings.STRIPE_SECRET_KEY:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            stripe.Subscription.modify(
+                sub.stripe_subscription_id,
+                cancel_at_period_end=True
+            )
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    sub.cancel_at_period_end = True
+    db.commit()
+    return {"status": "scheduled_cancellation", "cancel_at_period_end": True}
+
+@router.post("/resume-subscription")
+def resume_subscription(
+    auth: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db)
+):
+    """Reactivates a subscription that was marked to cancel at period end."""
+    auth.require_permission(PERM_BILLING_MANAGE)
+
+    sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
+    if not sub or not sub.stripe_subscription_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active subscription found")
+
+    if settings.STRIPE_SECRET_KEY:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            stripe.Subscription.modify(
+                sub.stripe_subscription_id,
+                cancel_at_period_end=False
+            )
+        except stripe.error.StripeError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    sub.cancel_at_period_end = False
+    db.commit()
+    return {"status": "resumed", "cancel_at_period_end": False}
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """
     Robust Stripe webhook handler with signature verification,
-    idempotent event processing, and automatic subscription state synchronization.
+    idempotent event processing, and comprehensive lifecycle state synchronization.
     """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
@@ -202,6 +303,13 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         sub = db.query(Subscription).filter(Subscription.stripe_customer_id == stripe_cust_id).first()
         if sub:
             sub.status = "past_due"
+
+    elif event_type == "invoice.payment_action_required":
+        # 3DS authentication required
+        stripe_cust_id = event_obj.get("customer")
+        sub = db.query(Subscription).filter(Subscription.stripe_customer_id == stripe_cust_id).first()
+        if sub:
+            sub.status = "incomplete"
 
     elif event_type == "invoice.payment_succeeded":
         stripe_cust_id = event_obj.get("customer")

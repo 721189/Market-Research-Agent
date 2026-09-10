@@ -18,6 +18,7 @@ from backend.app.research.synthesis import synthesize_strategic_report
 from backend.app.models.evidence import Evidence, Claim
 from backend.app.models.research import ResearchEvent, ResearchJob
 from backend.app.services.rate_limiter import rate_limiter
+from backend.app.services.prompt_guard import prompt_guard, PromptInjectionError
 
 logger = logging.getLogger("marketai.engine")
 
@@ -84,8 +85,12 @@ class ResearchEngine:
                 logger.info(f"Research job {research_id} halted due to cancellation at {checkpoint_name}")
                 raise JobCancelledException(f"Job {research_id} was cancelled during {checkpoint_name}")
 
-        # Checkpoint 0: Pre-flight
+        # Checkpoint 0: Pre-flight & Prompt Injection Defense
         check_cancellation("preflight")
+        is_safe, safety_err = prompt_guard.inspect_input(product_idea)
+        if not is_safe:
+            emit_event("security_violation", 0, f"Prompt injection rejected: {safety_err}", level="ERROR")
+            raise PromptInjectionError(f"Security validation failed: {safety_err}")
 
         # Stage 1: Planning
         emit_event("planning", 10, "Formulating targeted research hypotheses and questions")
@@ -171,12 +176,12 @@ class ResearchEngine:
         )
         check_cancellation("post-synthesis")
 
-        # Stage 7: QA & Confidence Scoring
-        emit_event("confidence_evaluation", 95, "Evaluating objective confidence metric across evidence base")
+        # Stage 7: QA & Empirical Confidence Scoring
+        emit_event("confidence_evaluation", 95, "Evaluating empirical confidence metric across evidence base")
         confidence_result = confidence_engine.calculate_confidence(
             sources=evidence_records,
             claims_count=len(competitors) * 2 + 4,
-            cross_source_agreements=len(cleaned_sources),
+            competitors=competitors,
             calculation_valid=True
         )
 

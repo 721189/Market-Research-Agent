@@ -1,22 +1,26 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 import math
+from backend.app.research.agreement import agreement_engine
 
 class ConfidenceEngine:
     @staticmethod
     def calculate_confidence(
         sources: List[Dict[str, Any]],
-        claims_count: int,
-        cross_source_agreements: int,
-        calculation_valid: bool
+        claims_count: int = 0,
+        cross_source_agreements: Optional[int] = None,
+        calculation_valid: bool = True,
+        competitors: Optional[List[Dict[str, Any]]] = None,
+        claims: Optional[List[Dict[str, Any]]] = None,
+        pricing_points: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Observable evidence-based confidence scoring engine:
         - 25% source reliability (mean authority score modulated by domain diversification)
         - 20% freshness (mean freshness score)
         - 25% evidence coverage (sufficient claims & sources)
-        - 20% cross-source agreement
-        - 10% calculation consistency
+        - 20% cross-source agreement (evaluated dynamically via agreement_engine)
+        - 10% calculation consistency (deterministic math check)
         """
         risk_factors: List[str] = []
         strengths: List[str] = []
@@ -87,20 +91,36 @@ class ConfidenceEngine:
             strengths.append("Evidence base contains fresh and timely market observations.")
 
         # 3. Evidence Coverage (25%)
-        # Benchmarked: at least 5 verified sources and 6 claims gives full 100%
-        safe_claims = max(0, claims_count)
+        effective_claims = claims_count if claims_count > 0 else (len(claims) if claims else 0)
         source_coverage_factor = min(1.0, len(sources) / 5.0) * 50.0
-        claims_coverage_factor = min(1.0, safe_claims / 6.0) * 50.0
+        claims_coverage_factor = min(1.0, effective_claims / 6.0) * 50.0
         coverage_score = min(100.0, source_coverage_factor + claims_coverage_factor)
 
         if len(sources) < 3:
             risk_factors.append("Limited source volume (fewer than 3 primary sources).")
-        if safe_claims < 3:
+        if effective_claims < 3:
             risk_factors.append("Sparse quantitative claim coverage extracted from market documents.")
 
-        # 4. Cross-source Agreement (20%)
-        agreement_ratio = cross_source_agreements / max(1, len(sources))
-        agreement_score = min(100.0, max(40.0, agreement_ratio * 100.0))
+        # 4. Cross-source Agreement (20%) - Evaluated via Agreement Engine
+        if competitors is not None or claims is not None:
+            agreement_data = agreement_engine.compute_agreement(
+                sources=sources,
+                competitors=competitors or [],
+                claims=claims or [],
+                pricing_points=pricing_points or []
+            )
+            agreement_score = agreement_data["concordance_score"]
+            if agreement_data["total_contradictions"] > 0:
+                for contra in agreement_data["contradiction_notes"]:
+                    risk_factors.append(contra)
+            if agreement_data["total_agreements"] >= 2:
+                strengths.append(f"Empirical multi-source concordance confirmed across {agreement_data['total_agreements']} claim/pricing points.")
+        elif cross_source_agreements is not None:
+            agreement_ratio = cross_source_agreements / max(1, len(sources))
+            agreement_score = min(100.0, max(40.0, agreement_ratio * 100.0))
+        else:
+            agreement_score = 65.0
+
         if agreement_score >= 80:
             strengths.append("High multi-source concordance on pricing and competitor positioning.")
 

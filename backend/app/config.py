@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     
     # Gemini AI
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+
+    # Firebase Auth
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "gen-lang-client-0526957989")
+
+    # Stripe Billing
+    STRIPE_SECRET_KEY: Optional[str] = os.getenv("STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET: Optional[str] = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+    # Observability & Metrics
+    PROMETHEUS_METRICS_ENABLED: bool = os.getenv("PROMETHEUS_METRICS_ENABLED", "true").lower() == "true"
+    OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "marketai-backend")
+    OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     
     # Security & Auth
     SECRET_KEY: str = os.getenv("SECRET_KEY", "marketai-super-secret-key-change-in-prod")

@@ -46,26 +46,21 @@ export async function GET(
       }
     } catch (fetchErr: unknown) {
       const msg = fetchErr instanceof Error ? fetchErr.message : "Network error";
-      console.warn("FastAPI unreachable from Next.js BFF proxy:", msg);
+      console.error("FastAPI unreachable from Next.js BFF proxy:", msg);
+      return NextResponse.json({
+        status: "FAILED",
+        task_id,
+        error: "Authoritative research backend is unreachable. Unable to retrieve job status.",
+        code: "BACKEND_UNAVAILABLE"
+      }, { status: 503 });
     }
 
-    // Default responsive state if polling an initial or offline task
     return NextResponse.json({
-      status: "COMPLETED",
-      task_id: task_id,
-      progress: 100,
-      result: {
-        product_idea: "MarketAI Intelligence Preview",
-        executive_summary: "Comprehensive market intelligence report processed successfully by the authoritative pipeline.",
-        financials: {
-          suggested_retail_price: 49.0,
-          estimated_cogs: 14.0,
-          projected_margin_percentage: 71.4,
-          markup_percentage: 250.0,
-          break_even_units: 143
-        }
-      }
-    });
+      status: "FAILED",
+      task_id,
+      error: "Unexpected response state from upstream research engine.",
+      code: "UPSTREAM_ERROR"
+    }, { status: 502 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal error";
     return NextResponse.json({ status: "FAILURE", error: message }, { status: 500 });

@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marketai-production
+  labels:
+    environment: production
+    pod-security.kubernetes.io/enforce: restricted
+
+---
+# 1. NetworkPolicy: Defense-in-depth isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: internal-tier-isolation
+  namespace: marketai-production
+spec:
+  podSelector:
+    matchLabels:
+      tier: internal-data
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          tier: backend-api
+    - podSelector:
+        matchLabels:
+          tier: worker
+    ports:
+    - protocol: TCP
+      port: 5432
+    - protocol: TCP
+      port: 6379
+
+---
+# 2. Production API Deployment with Rolling Update
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-api
+  namespace: marketai-production
+  labels:
+    app: marketai-api
+    tier: backend-api
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: marketai-api
+  template:
+    metadata:
+      labels:
+        app: marketai-api
+        tier: backend-api
+    spec:
+      containers:
+      - name: api
+        image: gcr.io/marketai-prod/api:v2.0.0
+        command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        envFrom:
+        - secretRef:
+            name: marketai-secrets
+        - configMapRef:
+            name: marketai-config
+
+---
+# 3. Horizontal Pod Autoscaler for API (HPA)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: marketai-api-hpa
+  namespace: marketai-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: marketai-api
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+
+---
+# 4. Celery Worker Deployment with Queue-based Autoscaling
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-research-workers
+  namespace: marketai-production
+  labels:
+    app: marketai-worker
+    tier: worker
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: marketai-worker
+  template:
+    metadata:
+      labels:
+        app: marketai-worker
+        tier: worker
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/marketai-prod/worker:v2.0.0
+        command: ["celery", "-A", "backend.app.workers.celery_app", "worker", "-Q", "research.quick,research.deep", "--autoscale=12,2", "-l", "INFO"]
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "1Gi"
+          limits:
+            cpu: "4000m"
+            memory: "4Gi"
+        envFrom:
+        - secretRef:
+            name: marketai-secrets
+        - configMapRef:
+            name: marketai-config
+
+---
+# 5. Worker HPA for Peak Traffic Surges
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: marketai-worker-hpa
+  namespace: marketai-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: marketai-research-workers
+  minReplicas: 4
+  maxReplicas: 30
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 65

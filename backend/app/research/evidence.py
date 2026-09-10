@@ -1,8 +1,13 @@
 import hashlib
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 import datetime
+from email.utils import parsedate_to_datetime
 import re
+import logging
+from backend.app.services.ssrf import ssrf_protector
+
+logger = logging.getLogger("marketai.research.evidence")
 
 # Comprehensive Authority Domain Index
 AUTHORITY_DOMAINS: Dict[str, int] = {
@@ -41,10 +46,18 @@ AUTHORITY_DOMAINS: Dict[str, int] = {
 # Tracking query parameters to strip for canonical deduplication
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "gclid", "fbclid", "msclkid", "ref", "source", "mc_cid", "mc_eid"
+    "gclid", "fbclid", "msclkid", "ref", "source", "mc_cid", "mc_eid",
+    "_hsenc", "_hsmi", "zanpid"
 }
 
-DISALLOWED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+# Regexes for timestamp discovery in HTML content
+DATE_META_PATTERNS = [
+    re.compile(r'<meta[^>]+(?:property|name)=["\'](?:article:published_time|article:modified_time|og:updated_time|pubdate|date)["\'][^>]+content=["\']([^"\']+)["\']', re.IGNORECASE),
+    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:article:published_time|article:modified_time|og:updated_time|pubdate|date)["\']', re.IGNORECASE),
+    re.compile(r'"datePublished"\s*:\s*"([^"]+)"', re.IGNORECASE),
+    re.compile(r'"dateModified"\s*:\s*"([^"]+)"', re.IGNORECASE),
+    re.compile(r'<time[^>]+datetime=["\']([^"\']+)["\']', re.IGNORECASE),
+]
 
 class EvidenceCollector:
     @staticmethod
@@ -54,18 +67,15 @@ class EvidenceCollector:
         - Strips tracking query parameters
         - Strips URL fragments
         - Lowercases scheme and netloc
-        - Rejects local or non-routable targets
+        - Rejects local or non-routable targets via SSRF validation
         """
         try:
-            parsed = urlparse(raw_url.strip())
-            if parsed.scheme not in ("http", "https"):
+            is_valid, validated_url, _ = ssrf_protector.validate_url(raw_url)
+            if not is_valid or not validated_url:
                 return None
 
-            netloc = parsed.netloc.lower()
-            if not netloc or netloc in DISALLOWED_HOSTS or netloc.startswith("192.168.") or netloc.startswith("10."):
-                return None
-
-            # Filter query params
+            parsed = urlparse(validated_url)
+            # Filter tracking query parameters
             filtered_query = [
                 (k, v) for k, v in parse_qsl(parsed.query)
                 if k.lower() not in TRACKING_PARAMS
@@ -74,54 +84,188 @@ class EvidenceCollector:
 
             # Strip trailing slash from path
             path = parsed.path.rstrip("/")
-            if not path:
-                path = ""
 
             canonical = urlunparse((
                 parsed.scheme.lower(),
-                netloc,
+                parsed.netloc.lower(),
                 path,
                 "", # params
                 clean_query,
                 ""  # fragment
             ))
             return canonical
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to canonicalize URL '{raw_url}': {e}")
             return None
 
     @staticmethod
-    def compute_hash(content: str) -> str:
-        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+    def normalize_content(raw_text: str) -> str:
+        """
+        Normalizes extracted text content by removing HTML script/style tags,
+        collapsing excessive whitespace, and standardizing line breaks.
+        """
+        if not raw_text:
+            return ""
+        # Strip script and style blocks
+        cleaned = re.sub(r'<(script|style|svg)[^>]*>.*?</\1>', '', raw_text, flags=re.DOTALL | re.IGNORECASE)
+        # Strip HTML tags
+        cleaned = re.sub(r'<[^>]+>', ' ', cleaned)
+        # Collapse whitespace
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        return cleaned
+
+    @classmethod
+    def compute_hash(cls, content: Union[str, bytes]) -> str:
+        """
+        Computes deterministic SHA-256 content digest.
+        If string content is provided, it is first normalized to guarantee stability.
+        """
+        if isinstance(content, str):
+            normalized = cls.normalize_content(content)
+            return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        elif isinstance(content, bytes):
+            return hashlib.sha256(content).hexdigest()
+        else:
+            return hashlib.sha256(str(content).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def parse_header_date(date_str: Optional[str]) -> Optional[datetime.datetime]:
+        """Parses standard HTTP RFC-2822 / RFC-1123 date strings (e.g. Last-Modified)."""
+        if not date_str:
+            return None
+        try:
+            dt = parsedate_to_datetime(date_str)
+            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        except Exception:
+            return None
+
+    @classmethod
+    def extract_published_date(cls, html_text: str, headers: Dict[str, str]) -> Optional[datetime.datetime]:
+        """
+        Extracts real published or last-modified timestamp from HTTP headers and HTML meta/JSON-LD.
+        """
+        # 1. Check HTTP Last-Modified header
+        last_mod = headers.get("last-modified") or headers.get("date")
+        dt_header = cls.parse_header_date(last_mod)
+        if dt_header:
+            return dt_header
+
+        # 2. Check HTML meta tags and JSON-LD schema
+        for pattern in DATE_META_PATTERNS:
+            match = pattern.search(html_text)
+            if match:
+                raw_val = match.group(1).strip()
+                try:
+                    # Clean ISO format e.g. 2025-01-15T14:30:00Z
+                    iso_clean = raw_val.replace("Z", "+00:00")
+                    dt = datetime.datetime.fromisoformat(iso_clean)
+                    return dt.replace(tzinfo=None) if dt.tzinfo else dt
+                except Exception:
+                    # Try YYYY-MM-DD
+                    date_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', raw_val)
+                    if date_match:
+                        try:
+                            return datetime.datetime(
+                                int(date_match.group(1)),
+                                int(date_match.group(2)),
+                                int(date_match.group(3))
+                            )
+                        except ValueError:
+                            pass
+
+        return None
+
+    @classmethod
+    def compute_freshness(cls, retrieved_at: datetime.datetime, published_at: Optional[datetime.datetime] = None) -> int:
+        """
+        Calculates mathematical freshness score [0-100] using real published date.
+        Decay curve penalizes staleness and unverified timestamps.
+        """
+        if not published_at:
+            # When published date cannot be extracted, apply an unverified penalty
+            return 55
+
+        now = datetime.datetime.utcnow()
+        days_old = max(0, (now - published_at).days)
+
+        if days_old <= 30:
+            return 98
+        elif days_old <= 90:
+            return 88
+        elif days_old <= 180:
+            return 75
+        elif days_old <= 365:
+            return 60
+        elif days_old <= 730:
+            return 45
+        else:
+            return 30
+
+    @classmethod
+    async def harvest_and_hash_evidence(
+        cls,
+        url: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetches an external source securely using SSRF protection,
+        computes actual content SHA-256 hash, extracts real published date,
+        and computes authority and freshness scores.
+        """
+        canonical_url = cls.canonicalize_url(url)
+        if not canonical_url:
+            return None
+
+        try:
+            status_code, raw_bytes, headers = await ssrf_protector.safe_fetch(canonical_url)
+            if status_code >= 400:
+                logger.warning(f"Harvest failed for '{canonical_url}': HTTP {status_code}")
+                return None
+
+            content_text = raw_bytes.decode("utf-8", errors="replace")
+            content_hash = cls.compute_hash(content_text)
+            published_at = cls.extract_published_date(content_text, headers)
+            now = datetime.datetime.utcnow()
+
+            authority = cls.compute_authority(canonical_url)
+            freshness = cls.compute_freshness(retrieved_at=now, published_at=published_at)
+
+            return {
+                "url": canonical_url,
+                "content_hash": content_hash,
+                "raw_byte_size": len(raw_bytes),
+                "etag": headers.get("etag"),
+                "published_at": published_at.isoformat() if published_at else None,
+                "retrieved_at": now.isoformat(),
+                "authority_score": authority,
+                "freshness_score": freshness,
+                "snippet": cls.normalize_content(content_text)[:300]
+            }
+        except Exception as e:
+            logger.warning(f"Error harvesting evidence from {url}: {e}")
+            return None
 
     @staticmethod
     def compute_authority(url: str) -> int:
         try:
             domain = urlparse(url).netloc.lower()
-            # Strip port if present
             if ":" in domain:
                 domain = domain.split(":")[0]
 
-            # Extract root domain (e.g. news.bloomberg.com -> bloomberg.com)
             parts = domain.split(".")
-            if len(parts) >= 2:
-                root_domain = ".".join(parts[-2:])
-            else:
-                root_domain = domain
+            root_domain = ".".join(parts[-2:]) if len(parts) >= 2 else domain
 
             if root_domain in AUTHORITY_DOMAINS:
                 return AUTHORITY_DOMAINS[root_domain]
             if domain in AUTHORITY_DOMAINS:
                 return AUTHORITY_DOMAINS[domain]
 
-            # Top-level domain heuristics
             if domain.endswith(".gov"):
-                return 95
+                return 98
             if domain.endswith(".edu"):
                 return 92
             if domain.endswith(".org"):
                 return 78
 
-            # Penalize unverified community forums
             if root_domain in ("reddit.com", "quora.com"):
                 return 45
             if root_domain in ("medium.com", "substack.com"):
@@ -130,19 +274,5 @@ class EvidenceCollector:
             return 65
         except Exception:
             return 50
-
-    @staticmethod
-    def compute_freshness(retrieved_at: datetime.datetime, published_at: Optional[datetime.datetime] = None) -> int:
-        ref_time = published_at or retrieved_at
-        days_old = (datetime.datetime.utcnow() - ref_time).days
-        if days_old <= 30:
-            return 95
-        if days_old <= 90:
-            return 85
-        if days_old <= 180:
-            return 70
-        if days_old <= 365:
-            return 55
-        return 40
 
 evidence_collector = EvidenceCollector()

@@ -48,14 +48,12 @@ export async function POST(req: NextRequest) {
         { status: fastApiResponse.status }
       );
     } catch (fetchErr: unknown) {
-      // Graceful fallback if FastAPI service is being spawned or in local preview
       const msg = fetchErr instanceof Error ? fetchErr.message : "Network error";
-      console.warn("FastAPI unreachable from Next.js BFF proxy:", msg);
+      console.error("FastAPI unreachable from Next.js BFF proxy:", msg);
       return NextResponse.json({
-        task_id: `offline-${Date.now()}`,
-        status: "QUEUED",
-        warning: "Dispatched in local preview mode"
-      }, { status: 202 });
+        error: "Authoritative research engine backend is currently unreachable. Please ensure the API service is operational.",
+        code: "BACKEND_UNAVAILABLE"
+      }, { status: 503 });
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal error";

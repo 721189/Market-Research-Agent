@@ -47,6 +47,9 @@ def execute_research_job(self, job_id: str):
         job.started_at = datetime.datetime.utcnow()
         db.commit()
 
+        # Start accurate LLM & search metering
+        cost_service.start_job_metering(job.id)
+
         # Run real research engine async
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -67,26 +70,14 @@ def execute_research_job(self, job_id: str):
         run_record.completed_at = datetime.datetime.utcnow()
         db.commit()
 
-        # Log usage & cost
-        cost_usd = cost_service.calculate_cost(
-            model="gemini-1.5-flash",
-            input_tokens=2500,
-            output_tokens=1500,
-            search_calls=len(result.get("evidence_sources", []))
-        )
-        usage = UsageEvent(
+        # Finalize and persist actual metered usage and exact USD cost
+        cost_service.finalize_and_persist(
+            db=db,
             org_id=job.org_id,
             job_id=job.id,
             user_id=job.creator_id,
-            provider="google-gemini",
-            model="gemini-1.5-flash",
-            input_tokens=2500,
-            output_tokens=1500,
-            search_calls=len(result.get("evidence_sources", [])),
-            estimated_cost_usd=cost_usd
+            default_model="gemini-1.5-flash"
         )
-        db.add(usage)
-        db.commit()
 
         # Chain to Analysis Worker
         from backend.app.workers.analysis_worker import analyze_evidence_task
