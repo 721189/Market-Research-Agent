@@ -1,7 +1,7 @@
 // frontend/app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
-import { AuthProvider } from "@/app/lib/AuthProvider";
+import { AuthProvider } from "@/lib/AuthProvider";
 
 export const metadata: Metadata = {
   title: "MarketAI — Intelligence on demand",
