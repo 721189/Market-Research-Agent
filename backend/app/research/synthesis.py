@@ -1,6 +1,15 @@
 import json
+import logging
 from typing import Dict, Any, List
-from backend.app.research.planner import get_gemini_client
+from backend.app.providers.router import llm_gateway
+from backend.app.providers.base import ExtractionResultState
+
+logger = logging.getLogger("marketai.research.synthesis")
+
+def _validate_synthesis_data(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    return "executive_summary" in data or "strategic_recommendations" in data
 
 async def synthesize_strategic_report(
     product_idea: str,
@@ -11,10 +20,9 @@ async def synthesize_strategic_report(
     financials: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Stage 6: Synthesis of structured strategic report by elite Strategy Consultant.
+    Stage 6: Strategic synthesis of research findings.
+    Uses LLM Gateway. If synthesis fails, returns explicit FAILED state with diagnostic details.
     """
-    client = get_gemini_client()
-    
     context_data = {
         "product_idea": product_idea,
         "competitors": competitors,
@@ -24,27 +32,6 @@ async def synthesize_strategic_report(
         "financials": financials
     }
 
-    if not client:
-        return {
-            "executive_summary": f"Strong market opportunity identified for {product_idea} across target demographics with favorable unit economics.",
-            "strategic_recommendations": [
-                "Establish competitive differentiation through API-first integrations",
-                "Execute direct outbound to growth-stage SMBs",
-                "Maintain target gross margin above 60%"
-            ],
-            "swot_analysis": {
-                "strengths": ["Proprietary automation", "High margin structure"],
-                "weaknesses": ["Initial brand recognition deficit"],
-                "opportunities": ["Unmet demand in underserved mid-market"],
-                "threats": ["Incumbent bundling practices"]
-            },
-            "go_to_market": {
-                "primary_channel": "Content-led organic & Developer advocacy",
-                "launch_timeline_weeks": 8,
-                "initial_focus": "Early-access beta with design partners"
-            }
-        }
-
     prompt = f"""
     You are an elite Strategy Consultant at a top-tier management firm (McKinsey/BCG).
     Based strictly on these validated research findings:
@@ -52,7 +39,7 @@ async def synthesize_strategic_report(
 
     Generate a strategic synthesis in valid JSON format:
     {{
-      "executive_summary": "Crisp 2-3 paragraph executive brief with data points",
+      "executive_summary": "Crisp 2-3 paragraph executive brief with verified data points",
       "strategic_recommendations": ["rec 1", "rec 2", "rec 3"],
       "swot_analysis": {{
         "strengths": ["s1", "s2"],
@@ -67,26 +54,42 @@ async def synthesize_strategic_report(
       }}
     }}
     """
-    try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-            config={"response_mime_type": "application/json"}
-        )
-        return json.loads(response.text)
-    except Exception:
+
+    res = await llm_gateway.generate_structured(
+        prompt=prompt,
+        model="gemini-1.5-flash",
+        validator=_validate_synthesis_data,
+        timeout_seconds=45.0,
+        max_retries=3
+    )
+
+    if res.state == ExtractionResultState.SUCCESS and res.data:
+        data = res.data
+        data["synthesis_state"] = ExtractionResultState.SUCCESS.value
+        data.setdefault("strategic_recommendations", [])
+        data.setdefault("swot_analysis", {})
+        data.setdefault("go_to_market", {})
+        return data
+    elif res.state == ExtractionResultState.UNVERIFIED and res.data:
+        data = res.data
+        data["synthesis_state"] = ExtractionResultState.UNVERIFIED.value
+        return data
+    else:
+        logger.error(f"Strategic synthesis generation failed: {res.error_message}")
         return {
-            "executive_summary": f"Strategic assessment confirms viable commercial path for {product_idea}.",
-            "strategic_recommendations": ["Accelerate MVP build", "Validate initial price point with 20 prospective buyers"],
+            "synthesis_state": ExtractionResultState.FAILED.value,
+            "error_message": res.error_message or "Failed to synthesize strategic management report",
+            "executive_summary": f"Strategic synthesis could not be generated due to provider failure: {res.error_message}",
+            "strategic_recommendations": [],
             "swot_analysis": {
-                "strengths": ["Modern UX"],
-                "weaknesses": ["Bootstrap budget"],
-                "opportunities": ["Rapid niche capture"],
-                "threats": ["Fast followers"]
+                "strengths": [],
+                "weaknesses": [],
+                "opportunities": [],
+                "threats": []
             },
             "go_to_market": {
-                "primary_channel": "Product Hunt & Social Proof",
-                "launch_timeline_weeks": 6,
-                "initial_focus": "Waitlist building"
+                "primary_channel": "Unverified",
+                "launch_timeline_weeks": None,
+                "initial_focus": "Pending validated market input"
             }
         }

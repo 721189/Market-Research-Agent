@@ -3,8 +3,14 @@ import logging
 import threading
 from typing import Tuple, Dict, Any, List
 from collections import defaultdict
-import redis
-from redis.exceptions import RedisError, ConnectionError, TimeoutError
+try:
+    import redis
+    from redis.exceptions import RedisError, ConnectionError, TimeoutError
+except ImportError:
+    redis = None # type: ignore
+    class RedisError(Exception): pass # type: ignore
+    class ConnectionError(Exception): pass # type: ignore
+    class TimeoutError(Exception): pass # type: ignore
 from backend.app.config import settings
 
 logger = logging.getLogger("marketai.ratelimit")

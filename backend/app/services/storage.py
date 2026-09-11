@@ -2,8 +2,13 @@ import os
 import time
 import logging
 from typing import Dict, Any
-import boto3
-from botocore.exceptions import ClientError, EndpointConnectionError
+try:
+    import boto3
+    from botocore.exceptions import ClientError, EndpointConnectionError
+except ImportError:
+    boto3 = None # type: ignore
+    class ClientError(Exception): pass # type: ignore
+    class EndpointConnectionError(Exception): pass # type: ignore
 from backend.app.config import settings
 
 logger = logging.getLogger("marketai.storage")

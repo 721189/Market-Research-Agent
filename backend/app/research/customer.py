@@ -1,49 +1,62 @@
-import json
+import logging
 from typing import List, Dict, Any
-from backend.app.research.planner import get_gemini_client
+from backend.app.providers.router import llm_gateway
+from backend.app.providers.base import ExtractionResultState
+
+logger = logging.getLogger("marketai.research.customer")
+
+def _validate_customer_data(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    return "primary_persona" in data or "core_pain_points" in data
 
 async def extract_customer_profiles(product_idea: str, questions: List[str]) -> Dict[str, Any]:
-    client = get_gemini_client()
-    if not client:
-        return {
-            "primary_persona": "Growth-focused Product Manager",
-            "demographics": "Tech-forward professionals, ages 26-45, SMB & Mid-market",
-            "core_pain_points": [
-                "Manual data aggregation wastes hours weekly",
-                "Lack of unified competitor insight tools"
-            ],
-            "buying_triggers": [
-                "New product launch impending",
-                "Executive demand for competitive benchmarking"
-            ],
-            "sources": ["https://reddit.com/r/startups", "https://linkedin.com"]
-        }
-
+    """
+    Stage 2: Target customer profiles, buyer persona, and pain point extractor.
+    Uses LLM Gateway. Never returns fake default customer personas upon failure.
+    """
     prompt = f"""
     Analyze customer demographics, ideal buyer personas, and pain points for: "{product_idea}".
-    Questions: {questions}
+    Target Questions: {questions}
 
     Provide structured output in valid JSON:
     {{
-      "primary_persona": "Title / Role",
+      "primary_persona": "Title / Target Role",
       "demographics": "Target demographic details",
       "core_pain_points": ["point 1", "point 2"],
       "buying_triggers": ["trigger 1", "trigger 2"],
-      "sources": ["domain 1"]
+      "sources": ["valid_domain_or_url"]
     }}
     """
-    try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-            config={"response_mime_type": "application/json"}
-        )
-        return json.loads(response.text)
-    except Exception:
+
+    res = await llm_gateway.generate_structured(
+        prompt=prompt,
+        model="gemini-1.5-flash",
+        validator=_validate_customer_data,
+        timeout_seconds=35.0,
+        max_retries=3
+    )
+
+    if res.state == ExtractionResultState.SUCCESS and res.data:
+        data = res.data
+        data["extraction_state"] = ExtractionResultState.SUCCESS.value
+        data.setdefault("sources", [])
+        data.setdefault("core_pain_points", [])
+        data.setdefault("buying_triggers", [])
+        return data
+    elif res.state == ExtractionResultState.UNVERIFIED and res.data:
+        data = res.data
+        data["extraction_state"] = ExtractionResultState.UNVERIFIED.value
+        data.setdefault("sources", [])
+        return data
+    else:
+        logger.error(f"Customer extraction failed for '{product_idea}': {res.error_message}")
         return {
-            "primary_persona": "Strategic Decision Maker",
-            "demographics": "B2B and B2C team leads",
-            "core_pain_points": ["Fragmented market research tools"],
-            "buying_triggers": ["Quarterly strategy review"],
-            "sources": ["https://medium.com"]
+            "extraction_state": ExtractionResultState.FAILED.value,
+            "error_message": res.error_message or "Failed to retrieve verified customer personas",
+            "primary_persona": "Unidentified / Analysis Incomplete",
+            "demographics": "Unknown",
+            "core_pain_points": [],
+            "buying_triggers": [],
+            "sources": []
         }

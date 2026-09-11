@@ -2,7 +2,8 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
+import logging
 import stripe
 from backend.app.db.session import get_db
 from backend.app.api.deps import get_auth_context, AuthContext
@@ -12,15 +13,23 @@ from backend.app.models.organization import Organization
 from backend.app.services.entitlement import PLAN_LIMITS
 from backend.app.config import settings
 
+logger = logging.getLogger("marketai.billing")
 router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
 
 class CheckoutSessionRequest(BaseModel):
     plan: str
     success_url: str
     cancel_url: str
+    price_id: Optional[str] = None
 
 class PortalSessionRequest(BaseModel):
     return_url: str
+
+PLAN_PRICE_MAP = {
+    "starter": {"amount_cents": 4900, "name": "MarketAI Starter Plan"},
+    "pro": {"amount_cents": 19900, "name": "MarketAI Pro Plan"},
+    "enterprise": {"amount_cents": 99900, "name": "MarketAI Enterprise Plan"}
+}
 
 @router.get("/subscription")
 def get_subscription(
@@ -55,7 +64,7 @@ def create_checkout_session(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid plan selected")
 
     if not settings.STRIPE_SECRET_KEY:
-        # Development fallback session
+        # Development mode fallback session
         return {
             "session_id": f"dev_session_{auth.organization.id}_{payload.plan}",
             "url": f"{payload.success_url}?session_id=mock_success"
@@ -63,13 +72,31 @@ def create_checkout_session(
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
-        # Look up existing customer ID
         sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
         customer_kwargs = {}
         if sub and sub.stripe_customer_id:
             customer_kwargs["customer"] = sub.stripe_customer_id
         else:
             customer_kwargs["customer_email"] = auth.user.email
+
+        plan_info = PLAN_PRICE_MAP.get(payload.plan, PLAN_PRICE_MAP["starter"])
+
+        line_item = {}
+        if payload.price_id:
+            line_item = {"price": payload.price_id, "quantity": 1}
+        else:
+            line_item = {
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": plan_info["name"],
+                        "description": f"Market intelligence subscription ({payload.plan} tier)"
+                    },
+                    "unit_amount": plan_info["amount_cents"],
+                    "recurring": {"interval": "month"}
+                },
+                "quantity": 1
+            }
 
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -80,18 +107,7 @@ def create_checkout_session(
                 "plan": payload.plan,
                 "user_id": auth.user.id
             },
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": f"MarketAI {payload.plan.capitalize()} Plan",
-                        "description": f"Market intelligence subscription ({payload.plan} tier)"
-                    },
-                    "unit_amount": 4900 if payload.plan == "starter" else (19900 if payload.plan == "pro" else 99900),
-                    "recurring": {"interval": "month"}
-                },
-                "quantity": 1
-            }],
+            line_items=[line_item],
             success_url=payload.success_url,
             cancel_url=payload.cancel_url,
             **customer_kwargs
@@ -108,9 +124,6 @@ def create_customer_portal_session(
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db)
 ):
-    """
-    Creates a Stripe Customer Portal session for subscription management, invoice downloads, and card updates.
-    """
     auth.require_permission(PERM_BILLING_MANAGE)
 
     sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
@@ -140,7 +153,6 @@ def cancel_subscription(
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db)
 ):
-    """Schedules subscription cancellation at the end of the current billing cycle."""
     auth.require_permission(PERM_BILLING_MANAGE)
 
     sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
@@ -166,7 +178,6 @@ def resume_subscription(
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db)
 ):
-    """Reactivates a subscription that was marked to cancel at period end."""
     auth.require_permission(PERM_BILLING_MANAGE)
 
     sub = db.query(Subscription).filter(Subscription.org_id == auth.organization.id).first()
@@ -190,8 +201,11 @@ def resume_subscription(
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """
-    Robust Stripe webhook handler with signature verification,
-    idempotent event processing, and comprehensive lifecycle state synchronization.
+    Production Stripe webhook handler:
+    - Verifies HMAC signature
+    - Enforces idempotency via stripe_event_id
+    - Strict tenant resolution: Never assigns unresolved events to arbitrary tenants
+    - Handles checkout, subscription lifecycle, and invoice payment failure/success.
     """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
@@ -219,7 +233,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     if existing_event:
         return {"received": True, "status": "duplicate_ignored"}
 
-    # Resolve organization ID
+    # 2. Strict tenant resolution without arbitrary fallback
     org_id = None
     if "metadata" in event_obj and event_obj["metadata"].get("org_id"):
         org_id = event_obj["metadata"]["org_id"]
@@ -230,12 +244,22 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         if sub_by_cust:
             org_id = sub_by_cust.org_id
 
-    # Fallback to first active org if unresolvable
     if not org_id:
-        fallback_org = db.query(Organization).first()
-        org_id = fallback_org.id if fallback_org else "unknown"
+        logger.warning(f"Unresolvable tenant organization for Stripe webhook event {event_id} ({event_type}). Recording unlinked event log.")
+        billing_log = BillingEvent(
+            org_id="unlinked",
+            event_type=event_type,
+            amount_cents=event_obj.get("amount_total") or event_obj.get("amount_paid") or 0,
+            currency=event_obj.get("currency", "usd"),
+            status="unresolved_tenant",
+            stripe_event_id=event_id,
+            event_payload=event_obj
+        )
+        db.add(billing_log)
+        db.commit()
+        return {"received": True, "status": "unresolved_tenant_logged"}
 
-    # Save billing event record
+    # Save verified billing event record
     billing_log = BillingEvent(
         org_id=org_id,
         event_type=event_type,
@@ -247,7 +271,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     )
     db.add(billing_log)
 
-    # 2. Lifecycle state machines
+    # 3. Handle lifecycle state transitions
     if event_type == "checkout.session.completed":
         target_org_id = event_obj.get("client_reference_id") or (event_obj.get("metadata", {}).get("org_id"))
         purchased_plan = event_obj.get("metadata", {}).get("plan", "starter")
@@ -295,7 +319,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             sub.status = "canceled"
             org = db.query(Organization).filter(Organization.id == sub.org_id).first()
             if org:
-                # Downgrade to free tier upon subscription termination
                 org.plan = "free"
 
     elif event_type == "invoice.payment_failed":
@@ -305,7 +328,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             sub.status = "past_due"
 
     elif event_type == "invoice.payment_action_required":
-        # 3DS authentication required
         stripe_cust_id = event_obj.get("customer")
         sub = db.query(Subscription).filter(Subscription.stripe_customer_id == stripe_cust_id).first()
         if sub:

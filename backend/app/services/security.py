@@ -4,10 +4,16 @@ import hashlib
 import secrets
 import datetime
 from urllib.parse import urlparse
-from typing import Tuple, Optional
-from sqlalchemy.orm import Session
-from backend.app.models.organization import ApiKey, Organization
-from backend.app.models.user import User
+from typing import Tuple, Optional, Any
+try:
+    from sqlalchemy.orm import Session
+    from backend.app.models.organization import ApiKey, Organization
+    from backend.app.models.user import User
+except ImportError:
+    Session = Any # type: ignore
+    ApiKey = Any # type: ignore
+    Organization = Any # type: ignore
+    User = Any # type: ignore
 
 BLOCKED_IP_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),

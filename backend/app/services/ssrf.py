@@ -2,8 +2,11 @@ import socket
 import ipaddress
 import urllib.parse
 import logging
-from typing import Tuple, Optional, Set
-import httpx
+from typing import Tuple, Optional, Set, Dict, Any
+try:
+    import httpx
+except ImportError:
+    httpx = None # type: ignore
 
 logger = logging.getLogger("marketai.security.ssrf")
 

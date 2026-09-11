@@ -42,11 +42,12 @@ def create_research_job(
             detail="Rate limit exceeded. Please wait before scheduling more research jobs."
         )
 
-    # 3. Entitlement check
-    if not entitlement_service.can_create_research(auth.organization, payload.mode, db):
+    # 3. Entitlement & Quota check
+    can_create, err_reason = entitlement_service.can_create_research(auth.organization, payload.mode, db)
+    if not can_create:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Plan limits reached or mode not permitted on your subscription tier."
+            detail=err_reason or "Plan limits reached or mode not permitted on your subscription tier."
         )
 
     # 4. Idempotency race-free check
@@ -99,7 +100,10 @@ def create_research_job(
             detail="Conflict creating research job. Please retry with a new idempotency key."
         )
 
-    # 6. Dispatch to Celery Queue
+    # 6. Reserve Quota atomically
+    entitlement_service.reserve_quota(db, auth.organization.id, job.id, units=1)
+
+    # 7. Dispatch to Celery Queue
     queue_name = "research.quick" if payload.mode == "quick" else "research.deep"
     if payload.mode == "quick":
         execute_quick_research_job.apply_async(args=[job.id], queue=queue_name)
@@ -173,7 +177,10 @@ def cancel_research_job(
     job.status = "CANCELLED"
     job.cancelled_at = datetime.datetime.utcnow()
 
-    # 2. Emit Cancellation Event
+    # 2. Release Quota reservation
+    entitlement_service.release_quota(db, task_id, reason="cancelled_by_user")
+
+    # 3. Emit Cancellation Event
     cancel_event = ResearchEvent(
         job_id=task_id,
         stage="cancelled",
@@ -184,14 +191,14 @@ def cancel_research_job(
     db.add(cancel_event)
     db.commit()
 
-    # 3. Set Redis cancellation flag (TTL 1 hour) for low-latency worker notification
+    # 4. Set Redis cancellation flag (TTL 1 hour) for low-latency worker notification
     try:
         if rate_limiter.redis:
             rate_limiter.redis.setex(f"job_cancel:{task_id}", 3600, "1")
     except Exception as e:
         logger.warning(f"Could not set Redis cancellation flag: {e}")
 
-    # 4. Revoke Celery task
+    # 5. Revoke Celery task
     try:
         celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
     except Exception as e:
@@ -204,6 +211,7 @@ async def get_research_events(
     task_id: str,
     stream: bool = Query(False, description="Stream live updates via Server-Sent Events (SSE)"),
     accept: Optional[str] = Header(None),
+    last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
     auth: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db)
 ):
@@ -218,10 +226,13 @@ async def get_research_events(
 
     is_sse_requested = stream or (accept and "text/event-stream" in accept)
 
-    # If SSE streaming is requested, stream live events
+    # If SSE streaming is requested, stream live events with Last-Event-ID reconnection support
     if is_sse_requested:
         async def event_generator():
-            last_event_count = 0
+            processed_event_ids = set()
+            if last_event_id:
+                processed_event_ids.add(last_event_id)
+
             while True:
                 stream_db = SessionLocal()
                 try:
@@ -233,6 +244,10 @@ async def get_research_events(
                         ResearchEvent.job_id == task_id
                     ).order_by(ResearchEvent.created_at.asc()).all()
 
+                    new_events = [e for e in events if str(e.id) not in processed_event_ids]
+                    for e in new_events:
+                        processed_event_ids.add(str(e.id))
+
                     payload = {
                         "task_id": current_job.id,
                         "status": current_job.status,
@@ -241,17 +256,19 @@ async def get_research_events(
                         "error": current_job.error_message,
                         "events": [
                             {
+                                "id": str(e.id),
                                 "stage": e.stage,
                                 "progress": e.progress,
                                 "message": e.message,
                                 "level": e.level,
                                 "created_at": e.created_at.isoformat()
                             }
-                            for e in events[last_event_count:]
+                            for e in events
                         ]
                     }
-                    last_event_count = len(events)
-                    yield f"data: {json.dumps(payload)}\n\n"
+
+                    latest_id = str(events[-1].id) if events else current_job.id
+                    yield f"id: {latest_id}\nevent: update\ndata: {json.dumps(payload)}\n\n"
 
                     if current_job.status in ("COMPLETED", "FAILED", "CANCELLED"):
                         break

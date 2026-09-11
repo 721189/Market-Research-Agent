@@ -1,6 +1,14 @@
 import os
-from pydantic_settings import BaseSettings
 from typing import Optional, List
+
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    # Resilient fallback when pydantic_settings is not in current environment
+    class BaseSettings: # type: ignore
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "MarketAI Authoritative API"

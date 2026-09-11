@@ -1,41 +1,21 @@
-import json
-import os
+import logging
 from typing import Dict, List, Any
-from google import genai
-from backend.app.config import settings
+from backend.app.providers.router import llm_gateway
+from backend.app.providers.base import ExtractionResult, ExtractionResultState
 
-def get_gemini_client():
-    api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return None
-    return genai.Client(api_key=api_key)
+logger = logging.getLogger("marketai.research.planner")
 
-async def generate_research_plan(product_idea: str) -> Dict[str, List[str]]:
+def _validate_plan_schema(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
+    required_keys = ["competitor_questions", "market_questions", "pricing_questions", "customer_questions"]
+    return all(k in data and isinstance(data[k], list) and len(data[k]) > 0 for k in required_keys)
+
+async def generate_research_plan(product_idea: str) -> Dict[str, Any]:
     """
-    Stage 1: Generate research planning questions for competitor, market, pricing, and customer dimensions.
+    Stage 1: Generate targeted research planning questions for competitor, market, pricing, and customer dimensions.
+    Returns structured plan with explicit extraction status.
     """
-    client = get_gemini_client()
-    if not client:
-        # High quality heuristic fallback
-        return {
-            "competitor_questions": [
-                f"Who are the top direct and indirect competitors for {product_idea}?",
-                f"What are competitor features, weaknesses, and customer complaints regarding {product_idea}?"
-            ],
-            "market_questions": [
-                f"What is the total addressable market size and projected CAGR for {product_idea}?",
-                f"What key industry trends and regulatory headwinds affect {product_idea}?"
-            ],
-            "pricing_questions": [
-                f"What is the current retail pricing range and business model for {product_idea}?",
-                f"What are customer price thresholds and expected margins for {product_idea}?"
-            ],
-            "customer_questions": [
-                f"Who is the primary target demographic and customer persona for {product_idea}?",
-                f"What are the biggest unsolved pain points for buyers of {product_idea}?"
-            ]
-        }
-
     prompt = f"""
     You are an elite corporate strategy research planner.
     Analyze this product idea: "{product_idea}".
@@ -53,18 +33,43 @@ async def generate_research_plan(product_idea: str) -> Dict[str, List[str]]:
       "customer_questions": ["q1", "q2"]
     }}
     """
-    try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-            config={"response_mime_type": "application/json"}
-        )
-        data = json.loads(response.text)
-        return data
-    except Exception:
+
+    res: ExtractionResult[Dict[str, List[str]]] = await llm_gateway.generate_structured(
+        prompt=prompt,
+        model="gemini-1.5-flash",
+        validator=_validate_plan_schema,
+        timeout_seconds=30.0,
+        max_retries=3
+    )
+
+    if res.state == ExtractionResultState.SUCCESS and res.data:
         return {
-            "competitor_questions": [f"Top competitors for {product_idea}"],
-            "market_questions": [f"Market size for {product_idea}"],
-            "pricing_questions": [f"Pricing models for {product_idea}"],
-            "customer_questions": [f"Target customers for {product_idea}"]
+            "status": "SUCCESS",
+            "competitor_questions": res.data.get("competitor_questions", []),
+            "market_questions": res.data.get("market_questions", []),
+            "pricing_questions": res.data.get("pricing_questions", []),
+            "customer_questions": res.data.get("customer_questions", []),
         }
+
+    logger.warning(f"LLM planning extraction resulted in state={res.state}: {res.error_message}. Using targeted query formulation.")
+    # Deterministic query formulation derived strictly from the product idea (not fake data)
+    return {
+        "status": "PARTIAL",
+        "error_message": res.error_message,
+        "competitor_questions": [
+            f"Who are the top direct and indirect competitors for {product_idea}?",
+            f"What are competitor features, weaknesses, and pricing regarding {product_idea}?"
+        ],
+        "market_questions": [
+            f"What is the total addressable market size (TAM) and projected CAGR for {product_idea}?",
+            f"What key industry trends and regulatory headwinds affect {product_idea}?"
+        ],
+        "pricing_questions": [
+            f"What is the current retail pricing range and business model for {product_idea}?",
+            f"What are customer price thresholds and expected margins for {product_idea}?"
+        ],
+        "customer_questions": [
+            f"Who is the primary target demographic and customer persona for {product_idea}?",
+            f"What are the biggest unsolved pain points for buyers of {product_idea}?"
+        ]
+    }
