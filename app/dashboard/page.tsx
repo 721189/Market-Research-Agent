@@ -28,7 +28,7 @@ const STEPS = [
 ];
 
 export default function DashboardPage() {
-  const { user, orgId, loading: authLoading, login, logout } = useAuth();
+  const { user, orgId, loading: authLoading, login, loginAsDemo, logout } = useAuth();
   const [product, setProduct] = useState("");
   const [mode, setMode] = useState<"quick" | "deep">("deep");
   const [job, setJob] = useState<JobState>({
@@ -103,17 +103,37 @@ export default function DashboardPage() {
   }, [job.phase, job.taskId, orgId]);
 
   if (authLoading) {
-    return <div className="min-h-screen flex items-center justify-center text-ink">Loading...</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center text-ink bg-canvas gap-4">
+        <div className="flex flex-col items-center gap-2">
+          <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+          <span className="font-medium tracking-wide">Loading MarketAI...</span>
+        </div>
+        <button 
+          onClick={loginAsDemo}
+          className="text-xs text-muted hover:text-ink hover:underline transition mt-2"
+        >
+          Bypass and Enter Sandbox Demo Mode
+        </button>
+      </div>
+    );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-ink gap-4">
-        <h1 className="text-3xl font-bold font-display">Welcome to MarketAI</h1>
-        <p className="text-muted">Sign in to start researching.</p>
-        <button onClick={login} className="bg-accent text-canvas px-6 py-2 rounded-lg font-medium hover:scale-105 transition">
-          Sign In with Google
-        </button>
+      <div className="min-h-screen flex flex-col items-center justify-center text-ink gap-6 bg-canvas">
+        <div className="text-center max-w-sm">
+          <h1 className="text-3xl font-bold font-display tracking-tight mb-2">Welcome to MarketAI</h1>
+          <p className="text-muted text-sm">Deploy secure automated product researchers and competitive insights instantly.</p>
+        </div>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button onClick={login} className="bg-accent text-canvas py-2.5 rounded-lg font-medium hover:opacity-90 transition shadow-sm">
+            Sign In with Google
+          </button>
+          <button onClick={loginAsDemo} className="border border-muted/30 hover:border-ink/45 text-ink py-2.5 rounded-lg font-medium transition text-sm">
+            Bypass with Sandbox Demo User
+          </button>
+        </div>
       </div>
     );
   }
