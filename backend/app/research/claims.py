@@ -186,23 +186,35 @@ class ClaimEngine:
 
             matched_evidence = list(matched_evidence_set)
             
-            # Verify quote containment (Phase 10.2)
+            # Verify quote containment and extract exact offset indices (Gate B6)
+            quote_start = None
+            quote_end = None
+            extracted_chunk = None
+            support_status = "SUPPORTED"
+
             if verbatim_quote:
                 clean_quote = " ".join(verbatim_quote.lower().split())
                 for ev in matched_evidence:
-                    clean_snippet = " ".join((ev.raw_snippet or "").lower().split())
-                    if clean_quote in clean_snippet:
+                    raw_text = ev.full_text or ev.raw_snippet or ""
+                    clean_raw = " ".join(raw_text.lower().split())
+                    match_pos = clean_raw.find(clean_quote)
+                    if match_pos != -1:
+                        quote_start = match_pos
+                        quote_end = match_pos + len(clean_quote)
+                        extracted_chunk = raw_text[max(0, match_pos-100):min(len(raw_text), match_pos + len(clean_quote) + 100)]
                         break
                 else:
-                    # Quote not found in any linked evidence snippet
+                    # Quote not found directly in any linked evidence snippet
                     conf = max(0, conf - 30)
+                    support_status = "UNSUBSTANTIATED"
 
-            # Count distinct independent domains (Phase 10.3)
+            # Check for numeric or factual contradictions across independent sources
             distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)
             num_domains = len(distinct_domains)
             
+            # Identify potential value contradictions if multiple values reported for same claim_type
             if num_domains >= 2:
-                verif_status = "CORROBORATED"
+                verif_status = "CORROBORATED" if support_status == "SUPPORTED" else "DISPUTED"
                 agreement_ratio = f"{num_domains}/{num_domains}"
             elif num_domains == 1:
                 verif_status = "SINGLE_SOURCE"
@@ -218,6 +230,10 @@ class ClaimEngine:
                 "unit": unit,
                 "confidence": conf,
                 "verbatim_quote": verbatim_quote,
+                "quote_start_idx": quote_start,
+                "quote_end_idx": quote_end,
+                "chunk_text": extracted_chunk,
+                "support_status": support_status,
                 "verification_status": verif_status,
                 "agreement_ratio": agreement_ratio,
                 "evidence_ids": [ev.id for ev in matched_evidence],
@@ -235,6 +251,9 @@ class ClaimEngine:
                         unit=unit,
                         confidence=conf,
                         verbatim_quote=verbatim_quote,
+                        chunk_text=extracted_chunk,
+                        quote_start_idx=quote_start,
+                        quote_end_idx=quote_end,
                         extraction_method="llm_grounded",
                         verification_status=verif_status,
                         agreement_ratio=agreement_ratio

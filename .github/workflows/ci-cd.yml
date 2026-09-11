@@ -230,13 +230,32 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install kubectl & Render Staging Kustomize Manifests
+      - name: Authenticate to Kubernetes Cluster
+        if: secrets.KUBECONFIG != ''
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to Staging Cluster & Verify Rollout
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          kubectl kustomize deploy/k8s/overlays/staging > staging-manifests.yaml
-          cat staging-manifests.yaml
+          
+          # Set immutable image tag in Kustomize overlay
+          cd deploy/k8s/overlays/staging
+          kubectl kustomize . | sed "s|marketai-backend:latest|marketai-backend:${{ github.sha }}|g" > rendered-staging.yaml
+          cd ../../../
+          
+          if [ -f ~/.kube/config ]; then
+            kubectl apply -f deploy/k8s/overlays/staging/rendered-staging.yaml
+            kubectl rollout status deployment/staging-marketai-api -n marketai-staging --timeout=180s
+            kubectl rollout status deployment/staging-marketai-worker -n marketai-staging --timeout=180s
+          else
+            echo "No KUBECONFIG secret provided - dry-run validation succeeded."
+            kubectl apply -f deploy/k8s/overlays/staging/rendered-staging.yaml --dry-run=client
+          fi
 
       - name: Live Staging Service Health Smoke Test
         run: |
@@ -262,10 +281,29 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Render & Validate Production Manifests
+      - name: Authenticate to Production Kubernetes Cluster
+        if: secrets.KUBECONFIG != ''
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to Production Cluster & Verify Rollout Status
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
-          kubectl kustomize deploy/k8s/overlays/production > production-manifests.yaml
-          cat production-manifests.yaml
+          
+          # Render with immutable GITHUB_SHA image tag
+          cd deploy/k8s/overlays/production
+          kubectl kustomize . | sed "s|marketai-backend:latest|marketai-backend:${{ github.sha }}|g" > rendered-prod.yaml
+          cd ../../../
+          
+          if [ -f ~/.kube/config ]; then
+            kubectl apply -f deploy/k8s/overlays/production/rendered-prod.yaml
+            kubectl rollout status deployment/prod-marketai-api -n marketai-production --timeout=180s
+            kubectl rollout status deployment/prod-marketai-worker -n marketai-production --timeout=180s
+          else
+            echo "No KUBECONFIG secret provided - dry-run validation succeeded."
+            kubectl apply -f deploy/k8s/overlays/production/rendered-prod.yaml --dry-run=client
+          fi

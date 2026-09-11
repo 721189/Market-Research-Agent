@@ -101,12 +101,20 @@ class LLMGateway:
         model: Optional[str] = None,
         timeout_seconds: float = 35.0,
         max_retries: int = 3,
-        validator: Optional[Callable[[Any], bool]] = None
+        validator: Optional[Callable[[Any], bool]] = None,
+        max_context_tokens: Optional[int] = None
     ) -> ExtractionResult[Any]:
         """
         Executes a structured JSON extraction request and returns an explicit ExtractionResult.
         Guarantees NO fake fallback values: if the LLM or validation fails, returns FAILED or PARTIAL.
+        Enforces max_context_tokens policy by truncating prompt context if needed.
         """
+        if max_context_tokens:
+            max_chars = max_context_tokens * 4
+            if len(prompt) > max_chars:
+                logger.info(f"Policy Enforcement: Truncating prompt from {len(prompt)} chars to {max_chars} chars (max_context_tokens={max_context_tokens})")
+                prompt = prompt[:max_chars]
+
         request = LLMRequest(
             prompt=prompt,
             system_instruction=system_instruction,
