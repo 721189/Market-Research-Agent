@@ -47,8 +47,7 @@ jobs:
       - name: Install Backend Dependencies (Lockfile Pinned)
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir -r backend/requirements.txt
-          pip install --no-cache-dir flake8 mypy pytest pytest-asyncio
+          pip install --no-cache-dir -r backend/requirements.lock
 
       - name: Backend Code Quality & Type Analysis
         env:
@@ -102,8 +101,7 @@ jobs:
       - name: Install Test Dependencies (Lockfile Pinned)
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir -r backend/requirements.txt
-          pip install --no-cache-dir pytest pytest-asyncio pytest-cov
+          pip install --no-cache-dir -r backend/requirements.lock
 
       - name: Execute Backend Test Suite
         env:
@@ -135,8 +133,7 @@ jobs:
       - name: Install Security Suite & SAST Tooling (Lockfile Pinned)
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir -r backend/requirements.txt
-          pip install --no-cache-dir pytest pytest-asyncio pytest-cov bandit
+          pip install --no-cache-dir -r backend/requirements.lock
 
       - name: Static Application Security Testing (Bandit SAST)
         run: |
@@ -172,7 +169,7 @@ jobs:
       - name: Install Dependencies (Lockfile Pinned)
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir -r backend/requirements.txt
+          pip install --no-cache-dir -r backend/requirements.lock
 
       - name: Execute AI Benchmark Evaluation & Quality Gate
         env:
@@ -285,7 +282,7 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python -m pip install --no-cache-dir -r backend/requirements.txt
+          python -m pip install --no-cache-dir -r backend/requirements.lock
           python scripts/disaster_recovery_drill.py
 
   # =========================================================================
@@ -301,10 +298,19 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Validate Environment Secrets & Credentials (Fail Closed)
+        env:
+          KUBECONFIG_VAL: ${{ secrets.KUBECONFIG }}
+        run: |
+          echo "Validating environment secrets for production rollout..."
+          if [ -z "$KUBECONFIG_VAL" ]; then
+            echo "CRITICAL: Missing KUBECONFIG secret for production deployment. Failing closed." >&2
+            exit 1
+          fi
+
       - name: Authenticate to Production Kubernetes Cluster
         env:
           KUBECONFIG_VAL: ${{ secrets.KUBECONFIG }}
-        if: "${{ env.KUBECONFIG_VAL != '' }}"
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
