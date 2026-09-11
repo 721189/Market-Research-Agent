@@ -193,25 +193,26 @@ class SSRFProtector:
                     # For HTTPS, sending request directly to IP breaks SNI TLS certificate verification.
                     # For HTTP, host replacement is valid. For HTTPS, we fetch the validated URL with SNI intact,
                     # while verifying the resolved IP immediately prior.
+                    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                    port_part = f":{port}" if parsed.port else ""
+                    pinned_netloc = f"{resolved_ip}{port_part}"
+                    target_fetch_url = urllib.parse.urlunsplit((parsed.scheme, pinned_netloc, parsed.path, parsed.query, parsed.fragment))
+
+                    req_headers = {
+                        "Host": hostname,
+                        "User-Agent": "MarketAI-Intelligence-Harvester/2.0 (+https://marketai.app/bot)",
+                        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+                    }
+
+                    # Pass sni_hostname extension for HTTPS connection pinning with SNI
+                    req_extensions = {}
                     if parsed.scheme == "https":
-                        target_fetch_url = validated_url
-                        req_headers = {
-                            "User-Agent": "MarketAI-Intelligence-Harvester/2.0 (+https://marketai.app/bot)",
-                            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
-                        }
-                    else:
-                        port_part = f":{parsed.port}" if parsed.port else ""
-                        pinned_netloc = f"{resolved_ip}{port_part}"
-                        target_fetch_url = urllib.parse.urlunsplit((parsed.scheme, pinned_netloc, parsed.path, parsed.query, parsed.fragment))
-                        req_headers = {
-                            "Host": hostname,
-                            "User-Agent": "MarketAI-Intelligence-Harvester/2.0 (+https://marketai.app/bot)",
-                            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
-                        }
+                        req_extensions["sni_hostname"] = hostname
 
                     response = await client.get(
                         target_fetch_url,
-                        headers=req_headers
+                        headers=req_headers,
+                        extensions=req_extensions
                     )
                 except httpx.RequestError as exc:
                     raise ConnectionError(f"HTTP request error fetching '{current_url}': {exc}")

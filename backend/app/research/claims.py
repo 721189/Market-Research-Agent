@@ -43,19 +43,53 @@ Strict Rules:
 3. Return ONLY valid JSON array with no markdown decoration.
 """
 
-def _parse_float_value(val: Any) -> Optional[float]:
+def normalize_numeric_value(val: Any, unit: Optional[str] = None, claim_type: Optional[str] = None) -> Tuple[Optional[float], str]:
     if val is None:
-        return None
-    if isinstance(val, (int, float)):
-        return float(val)
-    if isinstance(val, str):
-        cleaned = re.sub(r'[^\d.]', '', val)
-        if cleaned:
-            try:
-                return float(cleaned)
-            except ValueError:
-                return None
-    return None
+        return None, "unknown"
+
+    val_str = str(val).strip()
+    if not val_str:
+        return None, "unknown"
+
+    unit_lower = (unit or "").lower().strip()
+    claim_type_lower = (claim_type or "").lower().strip()
+    val_lower = val_str.lower()
+    search_text = f"{val_lower} {unit_lower}"
+
+    # Dimension classification
+    dimension = "other"
+    if any(c in val_lower for c in ["$", "€", "£", "usd", "eur", "gbp"]) or any(u in unit_lower for u in ["usd", "eur", "gbp", "currency", "$", "dollar"]) or claim_type_lower in ["competitor_pricing", "cogs_assumption", "entry_tier_usd", "mid_tier_usd", "enterprise_tier_usd"]:
+        dimension = "currency"
+    elif "%" in val_lower or any(u in unit_lower for u in ["%", "percent", "percentage", "ratio"]) or claim_type_lower in ["cagr", "growth_rate", "margin", "gross_margin"]:
+        dimension = "percentage"
+    elif any(u in unit_lower for u in ["user", "users", "customer", "customers", "count", "subscriber", "subscribers", "download", "downloads"]):
+        dimension = "count"
+    elif any(u in unit_lower for u in ["month", "months", "year", "years", "day", "days"]):
+        dimension = "time"
+    elif claim_type_lower == "market_size":
+        dimension = "currency" if dimension == "other" else dimension
+
+    # Multiplier detection
+    multiplier = 1.0
+    if re.search(r'\b(trillion)\b', search_text) or re.search(r'[\d.]+\s*t\b', search_text):
+        multiplier = 1e12
+    elif re.search(r'\b(billion)\b', search_text) or re.search(r'[\d.]+\s*b\b', search_text):
+        multiplier = 1e9
+    elif re.search(r'\b(million)\b', search_text) or re.search(r'[\d.]+\s*m\b', search_text):
+        multiplier = 1e6
+    elif re.search(r'\b(thousand)\b', search_text) or re.search(r'[\d.]+\s*k\b', search_text):
+        multiplier = 1e3
+
+    cleaned_num_str = re.sub(r'[^\d.]', '', val_str)
+    if not cleaned_num_str:
+        return None, dimension
+
+    try:
+        base_num = float(cleaned_num_str)
+        normalized_val = base_num * multiplier
+        return normalized_val, dimension
+    except ValueError:
+        return None, dimension
 
 class ClaimEngine:
     @classmethod
@@ -241,17 +275,21 @@ class ClaimEngine:
                 if support_status == "UNSUBSTANTIATED":
                     conf = max(0, conf - 30)
 
-            # Step 7: Contradiction detection across numerical values and claims
-            v1 = _parse_float_value(value)
+            # Step 7: Contradiction detection across numerical values and claims (Dimension-Aware)
+            v1, dim1 = normalize_numeric_value(value, unit, claim_type)
             if v1 is not None and v1 > 0:
                 for prev_c in persisted_claims:
                     if prev_c.get("claim_type") == claim_type:
-                        v2 = _parse_float_value(prev_c.get("value"))
+                        v2, dim2 = normalize_numeric_value(prev_c.get("value"), prev_c.get("unit"), prev_c.get("claim_type"))
                         if v2 is not None and v2 > 0:
-                            diff_ratio = abs(v1 - v2) / max(v1, v2)
-                            if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
-                                support_status = "CONTRADICTION"
-                                logger.warning(f"Contradiction detected for {claim_type}: {v1} vs {v2} (variance {diff_ratio:.2%})")
+                            if dim1 == dim2 or dim1 == "other" or dim2 == "other":
+                                diff_ratio = abs(v1 - v2) / max(v1, v2)
+                                if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
+                                    support_status = "CONTRADICTION"
+                                    logger.warning(
+                                        f"Contradiction detected for {claim_type} [{dim1}]: "
+                                        f"{v1} vs {v2} (variance {diff_ratio:.2%})"
+                                    )
 
             # Count distinct independent domains (Phase 10.3)
             distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)
