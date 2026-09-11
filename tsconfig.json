@@ -20,25 +20,9 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/lib/*": [
-        "./app/lib/*",
-        "./app/Lib/*",
-        "./App/lib/*",
-        "./App/Lib/*",
-        "app/lib/*",
-        "app/Lib/*",
-        "App/lib/*",
-        "App/Lib/*"
-      ],
-      "@/app/*": [
-        "./app/*",
-        "./App/*",
-        "app/*",
-        "App/*"
-      ],
       "@/*": [
-        "./*",
-        "*"
+        "./app/*",
+        "./*"
       ]
     }
   },
