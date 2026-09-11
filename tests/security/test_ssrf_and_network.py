@@ -70,10 +70,12 @@ class TestSSRFAndNetworkSecurity:
 
     def test_dns_rebinding_simulation(self):
         """Verify that hostnames resolving to private IP addresses are rejected during resolution checks."""
-        with patch("socket.gethostbyname", return_value="127.0.0.1"):
+        with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', 80))]), \
+             patch("socket.gethostbyname", return_value="127.0.0.1"):
             assert evidence_collector.is_safe_public_url("http://rebind-attack.com/hook") is False
 
-        with patch("socket.gethostbyname", return_value="10.10.10.10"):
+        with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('10.10.10.10', 80))]), \
+             patch("socket.gethostbyname", return_value="10.10.10.10"):
             assert evidence_collector.is_safe_public_url("http://spoofed-intranet.com") is False
 
     def test_valid_public_urls_accepted(self):
@@ -85,5 +87,6 @@ class TestSSRFAndNetworkSecurity:
             "https://bloomberg.com/news/articles/2025-02-10/saas-market"
         ]
         for url in valid_urls:
-            with patch("socket.gethostbyname", return_value="93.184.216.34"): # Example public IP
+            with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('93.184.216.34', 443))]), \
+                 patch("socket.gethostbyname", return_value="93.184.216.34"): # Example public IP
                 assert evidence_collector.is_safe_public_url(url) is True, f"Legitimate public URL {url} should pass"

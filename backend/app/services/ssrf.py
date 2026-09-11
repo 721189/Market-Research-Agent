@@ -116,23 +116,40 @@ class SSRFProtector:
         if port not in ALLOWED_PORTS:
             return False, None, f"Target port {port} is not in allowed list"
 
+        # Direct IP Address check
+        try:
+            ip_literal = ipaddress.ip_address(hostname_lower)
+            if cls.is_ip_blocked(str(ip_literal)):
+                return False, None, f"Target IP '{hostname}' is in restricted address range"
+            return True, clean_url, None
+        except ValueError:
+            pass
+
         # 3. DNS Resolution and IP checking (Mitigate DNS Rebinding & Private IPs)
+        resolved_any = False
         try:
             resolved_ips = socket.getaddrinfo(hostname, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
-            if not resolved_ips:
-                return False, None, f"DNS resolution yielded no address records for '{hostname}'"
+            if resolved_ips:
+                resolved_any = True
+                for res in resolved_ips:
+                    sockaddr = res[4]
+                    ip_candidate = sockaddr[0]
+                    if cls.is_ip_blocked(ip_candidate):
+                        logger.warning(f"SSRF Alert: Blocked access to {hostname} which resolved to restricted IP: {ip_candidate}")
+                        return False, None, f"Target host '{hostname}' resolves to restricted address '{ip_candidate}'"
+        except Exception:
+            pass
 
-            for res in resolved_ips:
-                sockaddr = res[4]
-                ip_candidate = sockaddr[0]
-                if cls.is_ip_blocked(ip_candidate):
-                    logger.warning(f"SSRF Alert: Blocked access to {hostname} which resolved to restricted IP: {ip_candidate}")
-                    return False, None, f"Target host '{hostname}' resolves to restricted address '{ip_candidate}'"
-
-        except socket.gaierror as dns_err:
-            return False, None, f"DNS resolution failed for '{hostname}': {dns_err}"
-        except Exception as ex:
-            return False, None, f"Network validation failed: {ex}"
+        # Fallback to gethostbyname if getaddrinfo didn't resolve
+        if not resolved_any:
+            try:
+                ip_cand = socket.gethostbyname(hostname)
+                if ip_cand:
+                    resolved_any = True
+                    if cls.is_ip_blocked(ip_cand):
+                        return False, None, f"Target host '{hostname}' resolves to restricted address '{ip_cand}'"
+            except Exception as dns_err:
+                return False, None, f"DNS resolution failed for '{hostname}': {dns_err}"
 
         return True, clean_url, None
 

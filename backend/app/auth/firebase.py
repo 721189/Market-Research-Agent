@@ -61,7 +61,22 @@ def get_firebase_public_keys(force_refresh: bool = False) -> Dict[str, str]:
     return cert_cache.get_certificates(force_refresh=force_refresh)
 
 def verify_firebase_token(token: str) -> Dict[str, Any]:
-    """Alias for verify_token for Firebase token validation."""
+    """
+    Cryptographically verifies a Firebase ID token (must be RS256 signed by Google).
+    """
+    if not token or not isinstance(token, str):
+        raise ValueError("Authentication token is missing or empty")
+
+    token = token.strip()
+    try:
+        header = jwt.get_unverified_header(token)
+    except Exception as e:
+        raise ValueError(f"Malformed token header: {e}")
+
+    alg = header.get("alg")
+    if alg != "RS256":
+        raise ValueError(f"Firebase token must use RS256 algorithm, got '{alg}'")
+
     return verify_token(token)
 
 def verify_token(token: str) -> Dict[str, Any]:
