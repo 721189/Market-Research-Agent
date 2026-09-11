@@ -1,7 +1,7 @@
 import datetime
 from sqlalchemy import Column, String, Integer, DateTime, Boolean, Text, JSON, ForeignKey
 from sqlalchemy.orm import relationship
-from backend.app.database import Base
+from backend.app.db.session import Base
 
 class ResearchTemplate(Base):
     __tablename__ = "research_templates"

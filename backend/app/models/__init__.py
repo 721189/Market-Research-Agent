@@ -6,6 +6,7 @@ from backend.app.models.evidence import Evidence, Claim, claim_sources
 from backend.app.models.report import Report, Artifact
 from backend.app.models.billing import UsageEvent, Subscription, BillingEvent
 from backend.app.models.audit import AuditEvent
+from backend.app.models.marketplace import ResearchTemplate, ScheduledResearch, MarketAlert
 
 __all__ = [
     "Base",
@@ -25,4 +26,7 @@ __all__ = [
     "Subscription",
     "BillingEvent",
     "AuditEvent",
+    "ResearchTemplate",
+    "ScheduledResearch",
+    "MarketAlert",
 ]
