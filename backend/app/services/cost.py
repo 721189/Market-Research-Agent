@@ -20,6 +20,10 @@ _job_usage_context: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextva
     "job_usage_context", default=None
 )
 
+class UnpricedModelError(ValueError):
+    """Raised when an unknown LLM model is encountered without configured pricing."""
+    pass
+
 class PriceCatalogEntry:
     def __init__(
         self,
@@ -28,7 +32,8 @@ class PriceCatalogEntry:
         effective_from: datetime.datetime,
         input_price_per_million: float,
         output_price_per_million: float,
-        search_price_per_call: float = 0.005
+        search_price_per_call: float = 0.005,
+        is_unpriced: bool = False
     ):
         self.provider = provider
         self.model = model
@@ -36,6 +41,7 @@ class PriceCatalogEntry:
         self.input_price_per_million = input_price_per_million
         self.output_price_per_million = output_price_per_million
         self.search_price_per_call = search_price_per_call
+        self.is_unpriced = is_unpriced
 
 class CostService:
     """
@@ -68,6 +74,22 @@ class CostService:
             output_price_per_million=0.40,
             search_price_per_call=0.005
         ),
+        PriceCatalogEntry(
+            provider="google-gemini",
+            model="gemini-2.5-flash",
+            effective_from=datetime.datetime(2025, 1, 1),
+            input_price_per_million=0.10,
+            output_price_per_million=0.40,
+            search_price_per_call=0.005
+        ),
+        PriceCatalogEntry(
+            provider="google-gemini",
+            model="gemini-3.5-flash",
+            effective_from=datetime.datetime(2026, 1, 1),
+            input_price_per_million=0.15,
+            output_price_per_million=0.60,
+            search_price_per_call=0.005
+        ),
     ]
 
     DEFAULT_SEARCH_PRICE = 0.005
@@ -77,26 +99,32 @@ class CostService:
         cls,
         model: str,
         provider: str = "google-gemini",
-        as_of: Optional[datetime.datetime] = None
+        as_of: Optional[datetime.datetime] = None,
+        raise_if_unknown: bool = True
     ) -> PriceCatalogEntry:
         check_date = as_of or datetime.datetime.utcnow()
         # Find matching entries effective before or on check_date, ordered by newest effective_from
         matching = [
             p for p in cls.PRICE_CATALOG 
-            if p.model == model and (provider == "any" or p.provider == provider) and p.effective_from <= check_date
+            if (p.model == model or model.startswith(p.model)) and (provider == "any" or p.provider == provider) and p.effective_from <= check_date
         ]
         if matching:
             matching.sort(key=lambda p: p.effective_from, reverse=True)
             return matching[0]
 
-        # Fallback to flash pricing if unknown model
+        # Phase 29.2: Never silently price unknown models!
+        if raise_if_unknown:
+            logger.error(f"PRICING_ERROR: Model '{model}' from provider '{provider}' is not in price catalog.")
+            raise UnpricedModelError(f"Model '{model}' is unknown and has no catalog pricing. Pricing error enforced.")
+
         return PriceCatalogEntry(
             provider=provider,
             model=model,
             effective_from=datetime.datetime(2024, 1, 1),
-            input_price_per_million=0.075,
-            output_price_per_million=0.30,
-            search_price_per_call=0.005
+            input_price_per_million=0.0,
+            output_price_per_million=0.0,
+            search_price_per_call=0.0,
+            is_unpriced=True
         )
 
     @classmethod

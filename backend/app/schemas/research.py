@@ -7,6 +7,10 @@ class EvidenceRecordSchema(BaseModel):
     domain: str
     authority_score: int
     freshness_score: int
+    freshness_status: str = "UNKNOWN" # VERIFIED, APPROXIMATE, UNKNOWN
+    source_type: str = "web_article" # news, academic, official, benchmark, web_article
+    source_availability: float = 1.0
+    content_confidence: int = 70
     content_hash: Optional[str] = None
     title: Optional[str] = None
     snippet: Optional[str] = None

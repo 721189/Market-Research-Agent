@@ -180,9 +180,22 @@ class SSRFProtector:
                     raise SSRFSecurityError(f"SSRF check failed for URL '{current_url}': {err}")
 
                 try:
+                    # DNS TOCTOU Mitigation: Pin connection directly to resolved validated IP
+                    parsed = urllib.parse.urlsplit(validated_url)
+                    hostname = parsed.hostname
+                    resolved_ip = socket.gethostbyname(hostname)
+                    if cls.is_ip_blocked(resolved_ip):
+                        raise SSRFSecurityError(f"DNS TOCTOU check failed: '{hostname}' resolved to restricted IP '{resolved_ip}'")
+
+                    # Construct pinned URL replacing hostname with validated IP literal
+                    port_part = f":{parsed.port}" if parsed.port else ""
+                    pinned_netloc = f"{resolved_ip}{port_part}"
+                    pinned_url = urllib.parse.urlunsplit((parsed.scheme, pinned_netloc, parsed.path, parsed.query, parsed.fragment))
+
                     response = await client.get(
-                        validated_url,
+                        pinned_url,
                         headers={
+                            "Host": hostname,
                             "User-Agent": "MarketAI-Intelligence-Harvester/2.0 (+https://marketai.app/bot)",
                             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
                         }

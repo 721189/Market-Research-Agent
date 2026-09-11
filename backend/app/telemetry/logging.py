@@ -12,6 +12,9 @@ log_request_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("
 log_trace_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("log_trace_id", default=None)
 log_span_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("log_span_id", default=None)
 log_org_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("log_org_id", default=None)
+log_job_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("log_job_id", default=None)
+log_run_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("log_run_id", default=None)
+log_worker_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("log_worker_id", default=None)
 
 class StructuredJsonFormatter(logging.Formatter):
     """
@@ -62,6 +65,18 @@ class StructuredJsonFormatter(logging.Formatter):
         org_id = log_org_id.get() or getattr(record, "org_id", None)
         if org_id:
             log_payload["tenantId"] = org_id
+
+        job_id = log_job_id.get() or getattr(record, "job_id", None)
+        if job_id:
+            log_payload["jobId"] = job_id
+
+        run_id = log_run_id.get() or getattr(record, "run_id", None)
+        if run_id:
+            log_payload["runId"] = run_id
+
+        worker = log_worker_id.get() or getattr(record, "worker", None)
+        if worker:
+            log_payload["worker"] = worker
 
         # Exception details
         if record.exc_info:

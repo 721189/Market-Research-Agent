@@ -147,6 +147,66 @@ research_job_duration_seconds = Histogram(
     buckets=(5.0, 10.0, 20.0, 45.0, 90.0, 180.0, 300.0)
 )
 
+research_stage_duration_seconds = Histogram(
+    "marketai_research_stage_duration_seconds",
+    "Execution duration by pipeline stage in seconds",
+    ("stage",), # research, analysis, pdf
+    buckets=(1.0, 3.0, 5.0, 10.0, 30.0, 60.0, 120.0)
+)
+
+llm_latency_seconds = Histogram(
+    "marketai_llm_latency_seconds",
+    "Latency of LLM API invocations in seconds",
+    ("model", "stage"),
+    buckets=(0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0)
+)
+
+source_fetch_failures_total = Counter(
+    "marketai_source_fetch_failures_total",
+    "Total evidence source fetch failures",
+    ("reason",) # timeout, 404, ssrf_blocked, parse_error
+)
+
+source_count_histogram = Histogram(
+    "marketai_source_count",
+    "Count of evidence sources harvested per job",
+    (),
+    buckets=(0, 2, 5, 10, 20, 50)
+)
+
+claim_count_histogram = Histogram(
+    "marketai_claim_count",
+    "Count of structured claims extracted per job",
+    (),
+    buckets=(0, 5, 10, 20, 40, 80)
+)
+
+confidence_score_histogram = Histogram(
+    "marketai_confidence_score",
+    "Overall calculated confidence score distribution",
+    (),
+    buckets=(0, 20, 40, 60, 70, 80, 90, 100)
+)
+
+queue_wait_time_seconds = Histogram(
+    "marketai_queue_wait_time_seconds",
+    "Queue dispatch wait time before worker execution",
+    ("queue",),
+    buckets=(0.1, 0.5, 1.0, 5.0, 15.0, 60.0)
+)
+
+job_retry_total = Counter(
+    "marketai_job_retry_total",
+    "Count of job or task retries triggered",
+    ("stage", "reason")
+)
+
+job_failure_total = Counter(
+    "marketai_job_failure_total",
+    "Count of job failures by reason",
+    ("reason",)
+)
+
 llm_tokens_total = Counter(
     "marketai_llm_tokens_total",
     "Total LLM tokens metered across models",
@@ -181,6 +241,15 @@ ALL_METRICS = [
     http_request_duration_seconds,
     research_jobs_total,
     research_job_duration_seconds,
+    research_stage_duration_seconds,
+    llm_latency_seconds,
+    source_fetch_failures_total,
+    source_count_histogram,
+    claim_count_histogram,
+    confidence_score_histogram,
+    queue_wait_time_seconds,
+    job_retry_total,
+    job_failure_total,
     llm_tokens_total,
     llm_cost_usd_total,
     security_events_total,
