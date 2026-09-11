@@ -87,6 +87,10 @@ def analyze_evidence_task(self, job_id: str):
             raise JobCancelledException(f"Job {job_id} cancelled during {checkpoint_name}")
 
     try:
+        from backend.app.research.policy import get_research_policy
+        policy = get_research_policy(job.mode)
+        cost_service.start_job_metering(job_id, max_llm_calls=policy.max_llm_calls)
+
         check_cancellation("pre_analysis")
         job.status = "ANALYZING"
         db.commit()
@@ -261,6 +265,12 @@ def analyze_evidence_task(self, job_id: str):
         run_record.completed_at = datetime.datetime.utcnow()
         db.commit()
 
+        # Finalize accumulated LLM usage and cost metering
+        try:
+            cost_service.finalize_job_usage(db=db, org_id=job.org_id, job_id=job_id, user_id=job.user_id)
+        except Exception as meter_err:
+            logger.warning(f"Could not finalize job usage metrics: {meter_err}")
+
         # Commit quota reservation as successfully consumed
         entitlement_service.commit_quota(db, job_id, units=1, billing_rule="standard")
 
@@ -286,15 +296,21 @@ def analyze_evidence_task(self, job_id: str):
             
     except Exception as e:
         logger.exception(f"Error in analysis worker for job {job_id}: {e}")
-        job.status = "FAILED"
-        job.error_code = "ANALYSIS_ERROR"
-        job.error_message = str(e)
-        run_record.status = "FAILED"
-        run_record.error_message = str(e)
+        is_fatal = isinstance(e, FATAL_EXCEPTIONS) or self.request.retries >= self.max_retries
         
-        # Release quota if failed
-        entitlement_service.release_quota(db, job_id, reason="failed_during_analysis")
-        db.commit()
-        raise self.retry(exc=e)
+        if is_fatal:
+            job.status = "FAILED"
+            job.error_code = "ANALYSIS_ERROR"
+            job.error_message = str(e)
+            run_record.status = "FAILED"
+            run_record.error_message = str(e)
+            # Release reserved quota permanently on final failure
+            entitlement_service.release_quota(db, job_id, reason="failed_during_analysis")
+            db.commit()
+        else:
+            job.status = "RETRYING"
+            run_record.status = "RETRYING"
+            db.commit()
+            raise self.retry(exc=e)
     finally:
         db.close()

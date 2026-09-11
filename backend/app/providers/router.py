@@ -20,9 +20,29 @@ from backend.app.providers.base import (
 from backend.app.providers.gemini import GeminiProvider
 from backend.app.providers.telemetry import llm_telemetry
 
+from backend.app.services.cost import cost_service, _job_usage_context
+
 logger = logging.getLogger("marketai.providers.gateway")
 
 T = TypeVar("T")
+
+def _truncate_prompt_by_token_budget(prompt: str, max_tokens: int) -> str:
+    """
+    Truncates prompt to fit within max_tokens budget at clean sentence/paragraph boundaries
+    rather than mid-word character slicing.
+    """
+    estimated_tokens = len(prompt) // 4
+    if estimated_tokens <= max_tokens:
+        return prompt
+
+    target_chars = max_tokens * 4
+    boundary = prompt.rfind("\n\n", 0, target_chars)
+    if boundary == -1 or boundary < target_chars * 0.7:
+        boundary = prompt.rfind(". ", 0, target_chars)
+    if boundary == -1 or boundary < target_chars * 0.5:
+        boundary = target_chars
+
+    return prompt[:boundary] + "\n[Context truncated to meet policy token budget]"
 
 class LLMGateway:
     """
@@ -61,13 +81,33 @@ class LLMGateway:
     ) -> LLMResponse:
         """
         Executes an LLM request with strict retry logic and exponential jittered backoff.
+        Enforces per-job LLM call budget and automatically meters token consumption.
         """
+        ctx = _job_usage_context.get()
+        if ctx:
+            max_calls = ctx.get("max_llm_calls")
+            current_calls = ctx.get("llm_calls", 0)
+            if max_calls and current_calls >= max_calls:
+                raise ProviderError(
+                    f"Policy Enforcement: Per-job LLM call budget reached ({current_calls}/{max_calls} calls)",
+                    provider="gateway",
+                    retryable=False
+                )
+
         provider = self.get_provider(provider_name)
         last_exception: Optional[Exception] = None
 
         for attempt in range(1, max_retries + 1):
             try:
                 response = await provider.generate(request)
+                if response and response.usage:
+                    cost_service.record_llm_usage(
+                        model=response.model or request.model,
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                        duration_ms=response.usage.latency_ms,
+                        provider=response.provider
+                    )
                 return response
             except (RateLimitError, ModelUnavailableError, ProviderError) as exc:
                 last_exception = exc
@@ -110,10 +150,7 @@ class LLMGateway:
         Enforces max_context_tokens policy by truncating prompt context if needed.
         """
         if max_context_tokens:
-            max_chars = max_context_tokens * 4
-            if len(prompt) > max_chars:
-                logger.info(f"Policy Enforcement: Truncating prompt from {len(prompt)} chars to {max_chars} chars (max_context_tokens={max_context_tokens})")
-                prompt = prompt[:max_chars]
+            prompt = _truncate_prompt_by_token_budget(prompt, max_context_tokens)
 
         request = LLMRequest(
             prompt=prompt,

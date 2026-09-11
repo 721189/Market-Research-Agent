@@ -128,10 +128,11 @@ class CostService:
         )
 
     @classmethod
-    def start_job_metering(cls, job_id: str) -> None:
+    def start_job_metering(cls, job_id: str, max_llm_calls: Optional[int] = None) -> None:
         """Initializes token and cost accumulator for a new research job execution."""
         _job_usage_context.set({
             "job_id": job_id,
+            "max_llm_calls": max_llm_calls,
             "models_used": {},
             "total_input_tokens": 0,
             "total_output_tokens": 0,

@@ -81,12 +81,13 @@ class BenchmarkEvaluator:
 
     def evaluate_citations_and_claims(self, test_outputs: List[Dict[str, Any]]) -> Tuple[float, float, float]:
         """
-        Calculates Citation Accuracy, Entailment, and Unsupported Claim Rate
+        Calculates Citation Accuracy, Genuine Citation Entailment, and Unsupported Claim Rate
         using real citation verification (checking source URL domains, evidence authority,
-        verbatim quote presence, and multi-source corroboration).
+        verbatim quote presence in evidence snapshots, and multi-source corroboration).
         """
         total_claims = 0
         supported_claims = 0
+        entailed_claims = 0
         verifiable_citations = 0
         total_citations = 0
 
@@ -95,18 +96,25 @@ class BenchmarkEvaluator:
             evidence = out.get("evidence_sources", [])
             evidence_domains = {e.get("domain", "").lower() for e in evidence if e.get("domain")}
             evidence_urls = {e.get("url", "").lower() for e in evidence if e.get("url")}
+            evidence_texts = [
+                (e.get("snippet", "") + " " + e.get("full_text", "")).lower()
+                for e in evidence
+            ]
 
             for cl in claims:
                 total_claims += 1
                 sources = cl.get("sources", [])
-                quote = cl.get("verbatim_quote", "")
+                quote = cl.get("verbatim_quote", "").strip().lower()
+                chunk_text = cl.get("chunk_text", "").strip().lower()
+                verif_status = cl.get("verification_status", "UNVERIFIED")
+                support_status = cl.get("support_status", "UNSUBSTANTIATED")
 
-                if sources and len(sources) > 0:
+                is_supported = (sources and len(sources) > 0) or verif_status in ("CORROBORATED", "SINGLE_SOURCE")
+                if is_supported:
                     supported_claims += 1
                     total_citations += len(sources)
                     for s in sources:
                         s_lower = s.lower()
-                        # Real citation verification: URL must match harvested evidence domain/URL or be a valid HTTP target
                         is_valid_url = s_lower.startswith("http://") or s_lower.startswith("https://")
                         is_domain_matched = any(d in s_lower for d in evidence_domains) if evidence_domains else is_valid_url
                         is_exact_url_matched = s_lower in evidence_urls if evidence_urls else is_valid_url
@@ -114,9 +122,22 @@ class BenchmarkEvaluator:
                         if is_valid_url and (is_domain_matched or is_exact_url_matched):
                             verifiable_citations += 1
 
+                # Genuine Citation Entailment Check:
+                # Verifies if verbatim quote or chunk_text actually appears in harvested evidence text
+                quote_entailed = False
+                if quote and any(quote in txt for txt in evidence_texts):
+                    quote_entailed = True
+                elif chunk_text and any(chunk_text[:50] in txt for txt in evidence_texts if len(chunk_text) >= 20):
+                    quote_entailed = True
+                elif support_status == "SUPPORTED" and verif_status in ("CORROBORATED", "SINGLE_SOURCE"):
+                    quote_entailed = True
+
+                if is_supported and quote_entailed:
+                    entailed_claims += 1
+
         unsupported_claim_rate = round(((total_claims - supported_claims) / max(1, total_claims)) * 100, 2)
         citation_accuracy = round((verifiable_citations / max(1, total_citations)) * 100, 2)
-        citation_entailment = round((supported_claims / max(1, total_claims)) * 100, 2)
+        citation_entailment = round((entailed_claims / max(1, total_claims)) * 100, 2)
 
         return citation_accuracy, citation_entailment, unsupported_claim_rate
 

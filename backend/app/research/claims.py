@@ -186,38 +186,68 @@ class ClaimEngine:
 
             matched_evidence = list(matched_evidence_set)
             
-            # Verify quote containment and extract exact offset indices (Gate B6)
+            # Verify quote containment via exact offset mapping and snapshot retrieval (Gate B3, B4, Step 3, 4)
             quote_start = None
             quote_end = None
             extracted_chunk = None
-            support_status = "SUPPORTED"
+            support_status = "SUPPORTED" if matched_evidence else "UNSUBSTANTIATED"
 
             if verbatim_quote:
-                clean_quote = " ".join(verbatim_quote.lower().split())
-                for ev in matched_evidence:
-                    raw_text = ev.full_text or ev.raw_snippet or ""
-                    clean_raw = " ".join(raw_text.lower().split())
-                    match_pos = clean_raw.find(clean_quote)
-                    if match_pos != -1:
-                        quote_start = match_pos
-                        quote_end = match_pos + len(clean_quote)
-                        extracted_chunk = raw_text[max(0, match_pos-100):min(len(raw_text), match_pos + len(clean_quote) + 100)]
-                        break
-                else:
-                    # Quote not found directly in any linked evidence snippet
-                    conf = max(0, conf - 30)
-                    support_status = "UNSUBSTANTIATED"
+                support_status = "UNSUBSTANTIATED"
+                quote_words = [re.escape(w) for w in verbatim_quote.split()]
+                if quote_words:
+                    quote_pattern = re.compile(r'\s+'.join(quote_words), re.IGNORECASE)
+                    for ev in matched_evidence:
+                        raw_text = ev.full_text or ev.raw_snippet or ""
+                        # Step 3: Fetch real snapshot bytes if full_text is empty
+                        if not raw_text and ev.snapshot_object_key:
+                            try:
+                                from backend.app.services.storage import storage_service
+                                snapshot_bytes = storage_service.get_object_bytes(ev.snapshot_object_key)
+                                raw_text = snapshot_bytes.decode("utf-8", errors="ignore")
+                                ev.full_text = raw_text
+                            except Exception as err:
+                                logger.warning(f"Could not read evidence snapshot {ev.snapshot_object_key}: {err}")
 
-            # Check for numeric or factual contradictions across independent sources
+                        if raw_text:
+                            # Step 4: Correct exact character offset mapping in raw_text
+                            match = quote_pattern.search(raw_text)
+                            if match:
+                                quote_start = match.start()
+                                quote_end = match.end()
+                                start_context = max(0, quote_start - 100)
+                                end_context = min(len(raw_text), quote_end + 100)
+                                extracted_chunk = raw_text[start_context:end_context]
+                                support_status = "SUPPORTED"
+                                break
+
+                if support_status == "UNSUBSTANTIATED":
+                    conf = max(0, conf - 30)
+
+            # Step 7: Contradiction detection across numerical values and claims
+            if value is not None and isinstance(value, (int, float)):
+                for prev_c in result_claims:
+                    if prev_c.get("claim_type") == claim_type and isinstance(prev_c.get("value"), (int, float)):
+                        v1 = float(value)
+                        v2 = float(prev_c["value"])
+                        if v1 > 0 and v2 > 0:
+                            diff_ratio = abs(v1 - v2) / max(v1, v2)
+                            if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
+                                support_status = "CONTRADICTION"
+                                logger.warning(f"Contradiction detected for {claim_type}: {v1} vs {v2} (variance {diff_ratio:.2%})")
+
+            # Count distinct independent domains (Phase 10.3)
             distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)
             num_domains = len(distinct_domains)
             
-            # Identify potential value contradictions if multiple values reported for same claim_type
-            if num_domains >= 2:
+            if support_status == "CONTRADICTION":
+                verif_status = "DISPUTED"
+                agreement_ratio = f"0/{max(2, num_domains)}"
+            elif num_domains >= 2:
                 verif_status = "CORROBORATED" if support_status == "SUPPORTED" else "DISPUTED"
                 agreement_ratio = f"{num_domains}/{num_domains}"
             elif num_domains == 1:
-                verif_status = "SINGLE_SOURCE"
+                verif_status = "SINGLE_SOURCE" if support_status == "SUPPORTED" else "UNVERIFIED"
                 agreement_ratio = "1/1"
             else:
                 verif_status = "UNVERIFIED"

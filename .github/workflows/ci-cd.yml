@@ -276,6 +276,7 @@ jobs:
   deploy-production:
     name: 7. Production Release & Zero-Downtime Rollout
     needs: deploy-staging
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
