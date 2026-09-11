@@ -134,7 +134,16 @@ class CostService:
         max_llm_calls: Optional[int] = None,
         max_context_tokens: Optional[int] = None
     ) -> None:
-        """Initializes token and cost accumulator for a new research job execution."""
+        """Initializes or updates token and cost accumulator for a research job execution across all worker stages."""
+        ctx = _job_usage_context.get()
+        if ctx and ctx.get("job_id") == job_id:
+            # Preserve accumulated job state across worker stages for job-wide budget
+            if max_llm_calls is not None:
+                ctx["max_llm_calls"] = max_llm_calls
+            if max_context_tokens is not None:
+                ctx["max_context_tokens"] = max_context_tokens
+            return
+
         _job_usage_context.set({
             "job_id": job_id,
             "max_llm_calls": max_llm_calls,
@@ -278,12 +287,18 @@ class CostService:
             duration_ms = 0
             primary_model = default_model
 
-        estimated_cost = cls.calculate_cost(
-            model=primary_model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            search_calls=search_calls
-        )
+        if ctx and ctx.get("call_records"):
+            # Aggregate billing sums discrete per-call costs
+            calls_cost = sum(call.get("estimated_cost", 0.0) for call in ctx["call_records"])
+            search_cost = search_calls * cls.DEFAULT_SEARCH_PRICE
+            estimated_cost = round(calls_cost + search_cost, 6)
+        else:
+            estimated_cost = cls.calculate_cost(
+                model=primary_model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                search_calls=search_calls
+            )
 
         logger.info(
             f"Job {job_id} finalized usage: In={input_tokens} Out={output_tokens} "

@@ -35,6 +35,30 @@ class FinancialResult:
 
 class FinancialEngine:
     @staticmethod
+    def validate_assumptions(inputs: FinancialInputs) -> Tuple[bool, List[str]]:
+        """Rigorously models and validates financial assumptions before calculation."""
+        warnings_and_errors = []
+
+        if inputs.selling_price <= 0:
+            warnings_and_errors.append(f"Invalid selling price ${inputs.selling_price:.2f}: must be strictly greater than 0.")
+        
+        if inputs.cogs < 0:
+            warnings_and_errors.append(f"Invalid COGS ${inputs.cogs:.2f}: cannot be negative.")
+
+        if inputs.selling_price > 0 and inputs.cogs >= inputs.selling_price:
+            warnings_and_errors.append(f"Negative/Zero Gross Margin Risk: Direct COGS (${inputs.cogs:.2f}) meets or exceeds Selling Price (${inputs.selling_price:.2f}).")
+
+        if inputs.product_type == "saas":
+            if inputs.monthly_churn_rate_pct < 0.1 or inputs.monthly_churn_rate_pct > 50.0:
+                warnings_and_errors.append(f"Unrealistic Monthly Churn Rate {inputs.monthly_churn_rate_pct}%: must be between 0.1% and 50.0%.")
+        
+        if inputs.customer_acquisition_cost < 0:
+            warnings_and_errors.append(f"Invalid CAC ${inputs.customer_acquisition_cost:.2f}: cannot be negative.")
+
+        is_valid = not any("must be" in msg for msg in warnings_and_errors)
+        return is_valid, warnings_and_errors
+
+    @staticmethod
     def calculate(inputs: FinancialInputs) -> FinancialResult:
         if inputs.selling_price <= 0:
             raise ValueError("Selling price must be greater than 0")

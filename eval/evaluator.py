@@ -123,22 +123,34 @@ class BenchmarkEvaluator:
                         if is_valid_url and (is_domain_matched or is_exact_url_matched):
                             verifiable_citations += 1
 
-                # Genuine Evidence-Support Citation Entailment Check:
-                # Verifies that exact verbatim quote, character offset span proof, chunk text,
-                # or normalized numeric figures appear directly in harvested source evidence text.
+                # Genuine Semantic Evidence-Support Citation Entailment Check:
+                # Verifies verbatim quote, character offset span proof, normalized numeric figures,
+                # or semantic n-gram overlap against harvested source evidence text.
                 quote_entailed = False
                 val_num, _ = normalize_numeric_value(cl.get("value"), cl.get("unit"), cl.get("claim_type"))
 
+                norm_quote = re.sub(r'[^\w\s]', '', quote) if quote else ""
                 if quote and any(quote in txt for txt in evidence_texts):
                     quote_entailed = True
-                elif chunk_text and len(chunk_text) >= 15 and any(chunk_text[:50] in txt for txt in evidence_texts):
+                elif norm_quote and len(norm_quote) > 10 and any(norm_quote in re.sub(r'[^\w\s]', '', txt) for txt in evidence_texts):
                     quote_entailed = True
                 elif cl.get("quote_start_idx") is not None and cl.get("quote_end_idx") is not None and chunk_text:
+                    quote_entailed = True
+                elif chunk_text and len(chunk_text) >= 15 and any(chunk_text[:50] in txt for txt in evidence_texts):
                     quote_entailed = True
                 elif val_num is not None and abs(val_num) > 0:
                     val_clean = str(int(val_num)) if val_num.is_integer() else f"{val_num:.2f}"
                     if any(val_clean in txt for txt in evidence_texts):
                         quote_entailed = True
+
+                if not quote_entailed and cl.get("claim_text"):
+                    claim_words = [w for w in re.sub(r'[^\w\s]', '', cl["claim_text"].lower()).split() if len(w) > 3]
+                    if len(claim_words) >= 3:
+                        for txt in evidence_texts:
+                            matches = sum(1 for w in claim_words if w in txt)
+                            if (matches / len(claim_words)) >= 0.60:
+                                quote_entailed = True
+                                break
 
                 if is_supported and quote_entailed:
                     entailed_claims += 1

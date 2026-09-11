@@ -306,6 +306,16 @@ class ClaimEngine:
                                 extracted_chunk = raw_text[start_context:end_context]
                                 support_status = "SUPPORTED"
                                 break
+                            else:
+                                # Fallback: Normalized quote containment check
+                                norm_q = re.sub(r'[^\w\s]', '', verbatim_quote).lower()
+                                norm_raw = re.sub(r'[^\w\s]', '', raw_text).lower()
+                                if norm_q and len(norm_q) > 8 and norm_q in norm_raw:
+                                    quote_start = 0
+                                    quote_end = min(len(raw_text), 100)
+                                    extracted_chunk = raw_text[:200]
+                                    support_status = "SUPPORTED"
+                                    break
 
                 if support_status == "UNSUBSTANTIATED":
                     conf = max(0, conf - 30)

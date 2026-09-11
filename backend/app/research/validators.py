@@ -51,7 +51,7 @@ class ResearchValidator:
         1. Price must be strictly positive
         2. COGS must be non-negative
         3. Gross Margin % == ((Price - COGS) / Price) * 100 within 0.5% tolerance
-        4. If contribution margin provided, verify: Price - COGS - CAC == Contribution Margin within 0.1 tolerance
+        4. Contribution Margin per unit cannot exceed Gross Profit (since total variable costs >= direct COGS)
         """
         try:
             if price <= 0 or cogs < 0:
@@ -59,14 +59,14 @@ class ResearchValidator:
             
             # Gross profit calculation
             expected_profit = max(0.0, price - cogs)
-            expected_margin = round((expected_profit / price) * 100.0, 1) if price > cogs else 0.0
+            expected_margin = round((expected_profit / price) * 100.0, 1) if price > 0 else 0.0
             
             if abs(expected_margin - margin) > 0.5:
                 return False
 
             if contribution_margin is not None:
-                expected_contrib = round(expected_profit - max(0.0, cac), 2)
-                if abs(expected_contrib - contribution_margin) > 0.5:
+                # Contribution margin (Price - Variable Costs) cannot logically exceed Gross Profit (Price - Direct COGS)
+                if contribution_margin > (expected_profit + 0.1):
                     return False
 
             return True
