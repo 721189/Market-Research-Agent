@@ -5,9 +5,9 @@ import Link from "next/link";
 import {
   startResearch,
   researchPdfUrl,
-} from "../lib/api";
-import type { ResearchResult } from "../lib/types";
-import { useAuth } from "../lib/AuthProvider";
+} from "@/app/lib/api";
+import type { ResearchResult } from "@/app/lib/types";
+import { useAuth } from "@/app/lib/AuthProvider";
 
 interface JobState {
   product: string;
