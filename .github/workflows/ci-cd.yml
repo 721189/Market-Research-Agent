@@ -2,9 +2,16 @@ name: MarketAI Production CI/CD Pipeline
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - main
+      - staging
+      - master
+      - "**"
   pull_request:
-    branches: ["**"]
+    branches:
+      - main
+      - staging
+      - master
   workflow_dispatch:
 
 jobs:
@@ -22,7 +29,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install Frontend Dependencies
         run: |
@@ -37,7 +43,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Backend Dependencies
         run: |
@@ -57,7 +62,7 @@ jobs:
   # =========================================================================
   unit-and-integration-tests:
     name: 2. Unit & Integration Tests
-    needs: [lint-and-typecheck]
+    needs: lint-and-typecheck
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -92,7 +97,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Test Dependencies
         run: |
@@ -115,7 +119,7 @@ jobs:
   # =========================================================================
   security-audit:
     name: 3. Security Test Suite & SAST
-    needs: [unit-and-integration-tests]
+    needs: unit-and-integration-tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -125,7 +129,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Security Suite & SAST Tooling
         run: |
@@ -152,7 +155,7 @@ jobs:
   # =========================================================================
   ai-benchmark-eval:
     name: 4. AI Benchmark & Accuracy Release Gate
-    needs: [security-audit]
+    needs: security-audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -162,7 +165,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Execute AI Benchmark Evaluation & Quality Gate
         env:
@@ -175,7 +177,7 @@ jobs:
   # =========================================================================
   build-and-package:
     name: 5. Build Artifacts & Docker Images
-    needs: [ai-benchmark-eval]
+    needs: ai-benchmark-eval
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -185,7 +187,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Build Next.js Production Assets
         run: |
@@ -207,8 +208,7 @@ jobs:
   # =========================================================================
   deploy-staging:
     name: 6. Deploy to Staging & Smoke Tests
-    needs: [build-and-package]
-    if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main'
+    needs: build-and-package
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -225,8 +225,7 @@ jobs:
   # =========================================================================
   deploy-production:
     name: 7. Production Release (Zero-Downtime Rolling Update)
-    needs: [deploy-staging]
-    if: github.ref == 'refs/heads/main'
+    needs: deploy-staging
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
