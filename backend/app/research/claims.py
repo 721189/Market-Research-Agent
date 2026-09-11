@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
@@ -12,7 +13,7 @@ except ImportError:
     Evidence = Any # type: ignore
     claim_sources = None # type: ignore
 
-from backend.app.providers.gateway import llm_gateway
+from backend.app.providers.router import llm_gateway
 from backend.app.research.evidence import evidence_collector
 
 logger = logging.getLogger("marketai.research.claims")
@@ -225,16 +226,22 @@ class ClaimEngine:
                     conf = max(0, conf - 30)
 
             # Step 7: Contradiction detection across numerical values and claims
-            if value is not None and isinstance(value, (int, float)):
-                for prev_c in result_claims:
-                    if prev_c.get("claim_type") == claim_type and isinstance(prev_c.get("value"), (int, float)):
-                        v1 = float(value)
-                        v2 = float(prev_c["value"])
-                        if v1 > 0 and v2 > 0:
-                            diff_ratio = abs(v1 - v2) / max(v1, v2)
-                            if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
-                                support_status = "CONTRADICTION"
-                                logger.warning(f"Contradiction detected for {claim_type}: {v1} vs {v2} (variance {diff_ratio:.2%})")
+            if value is not None:
+                try:
+                    v1 = float(value)
+                    for prev_c in persisted_claims:
+                        if prev_c.get("claim_type") == claim_type and prev_c.get("value") is not None:
+                            try:
+                                v2 = float(prev_c["value"])
+                                if v1 > 0 and v2 > 0:
+                                    diff_ratio = abs(v1 - v2) / max(v1, v2)
+                                    if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
+                                        support_status = "CONTRADICTION"
+                                        logger.warning(f"Contradiction detected for {claim_type}: {v1} vs {v2} (variance {diff_ratio:.2%})")
+                            except (ValueError, TypeError):
+                                pass
+                except (ValueError, TypeError):
+                    pass
 
             # Count distinct independent domains (Phase 10.3)
             distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)

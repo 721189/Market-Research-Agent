@@ -156,7 +156,9 @@ class ResearchEngine:
                     authority_score=ev_data["authority_score"],
                     freshness_score=ev_data["freshness_score"],
                     content_hash=ev_data["content_hash"],
-                    raw_snippet=ev_data.get("snippet", "")
+                    raw_snippet=(ev_data.get("snippet") or "")[:1000],
+                    snapshot_object_key=ev_data.get("snapshot_object_key"),
+                    full_text=ev_data.get("snippet", "")
                 )
                 db.add(ev_obj)
                 evidence_objs.append(ev_obj)

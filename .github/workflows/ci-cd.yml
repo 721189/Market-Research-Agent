@@ -6,7 +6,6 @@ on:
       - main
       - staging
       - master
-      - "**"
   pull_request:
     branches:
       - main
@@ -220,6 +219,7 @@ jobs:
   deploy-staging:
     name: 6. Staging Deployment & Live Smoke Tests
     needs: build-and-package
+    environment: staging
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -231,7 +231,9 @@ jobs:
           python-version: '3.11'
 
       - name: Authenticate to Kubernetes Cluster
-        if: secrets.KUBECONFIG != ''
+        env:
+          KUBECONFIG_VAL: ${{ secrets.KUBECONFIG }}
+        if: "${{ env.KUBECONFIG_VAL != '' }}"
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
@@ -277,13 +279,16 @@ jobs:
     name: 7. Production Release & Zero-Downtime Rollout
     needs: deploy-staging
     if: github.ref == 'refs/heads/main'
+    environment: production
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
       - name: Authenticate to Production Kubernetes Cluster
-        if: secrets.KUBECONFIG != ''
+        env:
+          KUBECONFIG_VAL: ${{ secrets.KUBECONFIG }}
+        if: "${{ env.KUBECONFIG_VAL != '' }}"
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config

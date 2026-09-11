@@ -122,14 +122,16 @@ class BenchmarkEvaluator:
                         if is_valid_url and (is_domain_matched or is_exact_url_matched):
                             verifiable_citations += 1
 
-                # Genuine Citation Entailment Check:
-                # Verifies if verbatim quote or chunk_text actually appears in harvested evidence text
+                # Strict Evidence-Based Citation Entailment Check:
+                # Verifies that verbatim quote, chunk text, or claim key terms appear directly in harvested evidence text
                 quote_entailed = False
+                claim_text_keywords = [w for w in cl.get("claim_text", "").lower().split() if len(w) > 4]
+                
                 if quote and any(quote in txt for txt in evidence_texts):
                     quote_entailed = True
-                elif chunk_text and any(chunk_text[:50] in txt for txt in evidence_texts if len(chunk_text) >= 20):
+                elif chunk_text and len(chunk_text) >= 15 and any(chunk_text[:50] in txt for txt in evidence_texts):
                     quote_entailed = True
-                elif support_status == "SUPPORTED" and verif_status in ("CORROBORATED", "SINGLE_SOURCE"):
+                elif claim_text_keywords and any(sum(1 for kw in claim_text_keywords if kw in txt) >= max(2, len(claim_text_keywords) // 2) for txt in evidence_texts):
                     quote_entailed = True
 
                 if is_supported and quote_entailed:
