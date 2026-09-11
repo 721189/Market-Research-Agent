@@ -106,8 +106,8 @@ jobs:
       - name: Execute Backend Test Suite
         env:
           PYTHONPATH: .
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/marketai_test
-          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: "postgresql://postgres:password@localhost:5432/marketai_test"
+          REDIS_URL: "redis://localhost:6379/0"
           SECRET_KEY: ci-test-secret-key-environment
           FIREBASE_PROJECT_ID: gen-lang-client-0526957989
         run: |
@@ -142,8 +142,8 @@ jobs:
       - name: Execute Security & Threat Test Matrix
         env:
           PYTHONPATH: .
-          DATABASE_URL: sqlite:///:memory:
-          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: "sqlite:///:memory:"
+          REDIS_URL: "redis://localhost:6379/0"
           SECRET_KEY: test-security-key-for-ci-pipeline
           FIREBASE_PROJECT_ID: gen-lang-client-0526957989
         run: |
