@@ -210,9 +210,16 @@ async def get_research_events(
     # If SSE streaming is requested, stream live events with Last-Event-ID reconnection support
     if is_sse_requested:
         async def event_generator():
-            processed_event_ids = set()
+            # Initialize query cursor
+            last_dt = None
             if last_event_id:
-                processed_event_ids.add(last_event_id)
+                initial_db = SessionLocal()
+                try:
+                    last_ev = initial_db.query(ResearchEvent).filter(ResearchEvent.id == last_event_id).first()
+                    if last_ev:
+                        last_dt = last_ev.created_at
+                finally:
+                    initial_db.close()
 
             while True:
                 stream_db = SessionLocal()
@@ -221,37 +228,49 @@ async def get_research_events(
                     if not current_job:
                         break
 
-                    events = stream_db.query(ResearchEvent).filter(
-                        ResearchEvent.job_id == task_id
-                    ).order_by(ResearchEvent.created_at.asc()).all()
+                    query = stream_db.query(ResearchEvent).filter(ResearchEvent.job_id == task_id)
+                    if last_dt:
+                        query = query.filter(ResearchEvent.created_at > last_dt)
+                    
+                    new_events = query.order_by(ResearchEvent.created_at.asc()).all()
 
-                    new_events = [e for e in events if str(e.id) not in processed_event_ids]
-                    for e in new_events:
-                        processed_event_ids.add(str(e.id))
-
-                    payload = {
-                        "task_id": current_job.id,
-                        "status": current_job.status,
-                        "progress": current_job.progress,
-                        "result": current_job.result,
-                        "error": current_job.error_message,
-                        "events": [
-                            {
-                                "id": str(e.id),
-                                "stage": e.stage,
-                                "progress": e.progress,
-                                "message": e.message,
-                                "level": e.level,
-                                "created_at": e.created_at.isoformat()
-                            }
-                            for e in events
-                        ]
-                    }
-
-                    latest_id = str(events[-1].id) if events else current_job.id
-                    yield f"id: {latest_id}\nevent: update\ndata: {json.dumps(payload)}\n\n"
+                    if new_events:
+                        last_dt = new_events[-1].created_at
+                        
+                        payload = {
+                            "task_id": current_job.id,
+                            "status": current_job.status,
+                            "progress": current_job.progress,
+                            "result": current_job.result,
+                            "error": current_job.error_message,
+                            "events": [
+                                {
+                                    "id": str(e.id),
+                                    "stage": e.stage,
+                                    "progress": e.progress,
+                                    "message": e.message,
+                                    "level": e.level,
+                                    "created_at": e.created_at.isoformat()
+                                }
+                                for e in new_events
+                            ]
+                        }
+                        
+                        latest_id = str(new_events[-1].id)
+                        yield f"id: {latest_id}\nevent: update\ndata: {json.dumps(payload)}\n\n"
 
                     if current_job.status in ("COMPLETED", "FAILED", "CANCELLED"):
+                        # Ensure we emit final state if no new events triggered it
+                        if not new_events:
+                            payload = {
+                                "task_id": current_job.id,
+                                "status": current_job.status,
+                                "progress": current_job.progress,
+                                "result": current_job.result,
+                                "error": current_job.error_message,
+                                "events": []
+                            }
+                            yield f"event: update\ndata: {json.dumps(payload)}\n\n"
                         break
                 finally:
                     stream_db.close()

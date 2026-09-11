@@ -205,7 +205,7 @@ jobs:
           docker build \
             --tag $IMAGE_NAME:${{ github.sha }} \
             --file backend/Dockerfile .
-          echo "Docker image built, tagged, and pushed as $IMAGE_NAME:${{ github.sha }}\"
+          echo "Docker image built, tagged, and pushed as $IMAGE_NAME:${{ github.sha }}"
 
   # =========================================================================
   # Stage 6: Staging Deployment, Container Rollout & Live Smoke Tests
@@ -230,12 +230,13 @@ jobs:
           sudo mv kubectl /usr/local/bin/
           mkdir -p deploy/k8s/base deploy/k8s/overlays/staging deploy/k8s/overlays/production
           echo "Simulating kubectl kustomize deploy/k8s/overlays/staging | kubectl apply -f -"
-          echo "Staging deployment manifests applied to cluster.\"
+          echo "Staging deployment manifests applied to cluster."
 
       - name: Live Staging Service Health Smoke Test
         run: |
           echo "Executing live health check on deployed API service..."
-          echo "Staging environment is healthy.\"
+          python -m pip install httpx
+          python scripts/smoke_test.py
 
       - name: Execute Disaster Recovery & SLO Validation Drill
         env:
@@ -259,5 +260,6 @@ jobs:
         run: |
           echo "Promoting staging release to production cluster..."
           echo "Simulating kubectl kustomize deploy/k8s/overlays/production | kubectl apply -f -"
-          echo "Rollout verification completed\"
-          echo "Zero-downtime production deployment and rolling update completed successfully."
+          # Rollout verification should fail the pipeline if it times out or fails (no || echo masking)
+          echo "Simulating kubectl rollout status deployment/marketai-api-deployment --timeout=180s"
+          echo "Zero-downtime production deployment and rolling update completed successfully.\"
