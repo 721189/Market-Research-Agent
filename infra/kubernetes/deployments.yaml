@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-api
+  labels:
+    app: marketai-api
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: marketai-api
+  template:
+    metadata:
+      labels:
+        app: marketai-api
+    spec:
+      containers:
+        - name: api
+          image: marketai-backend:latest
+          command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-research-quick
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: worker-research-quick
+  template:
+    metadata:
+      labels:
+        app: worker-research-quick
+    spec:
+      containers:
+        - name: worker
+          image: marketai-backend:latest
+          command: ["celery", "-A", "backend.app.workers.celery_app.celery_app", "worker", "-Q", "research.quick", "-c", "4", "--loglevel=INFO"]
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-research-deep
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: worker-research-deep
+  template:
+    metadata:
+      labels:
+        app: worker-research-deep
+    spec:
+      containers:
+        - name: worker
+          image: marketai-backend:latest
+          command: ["celery", "-A", "backend.app.workers.celery_app.celery_app", "worker", "-Q", "research.deep", "-c", "2", "--loglevel=INFO"]
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "4Gi"
+            limits:
+              cpu: "8000m"
+              memory: "16Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-analysis
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: worker-analysis
+  template:
+    metadata:
+      labels:
+        app: worker-analysis
+    spec:
+      containers:
+        - name: worker
+          image: marketai-backend:latest
+          command: ["celery", "-A", "backend.app.workers.celery_app.celery_app", "worker", "-Q", "analysis", "-c", "4", "--loglevel=INFO"]
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-reports
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker-reports
+  template:
+    metadata:
+      labels:
+        app: worker-reports
+    spec:
+      containers:
+        - name: worker
+          image: marketai-backend:latest
+          command: ["celery", "-A", "backend.app.workers.celery_app.celery_app", "worker", "-Q", "reports", "-c", "2", "--loglevel=INFO"]
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"

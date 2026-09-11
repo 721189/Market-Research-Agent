@@ -1,0 +1,24 @@
+{
+  "test_case_id": "golden_ai_resume_india",
+  "product_idea": "AI resume builder for Indian college students",
+  "expected_competitors": [
+    {"name": "Novoresume", "tier": "global_incumbent"},
+    {"name": "Kickresume", "tier": "global_incumbent"},
+    {"name": "Enhancv", "tier": "global_incumbent"},
+    {"name": "Resumod", "tier": "regional_direct"}
+  ],
+  "expected_pricing_bands": {
+    "currency": "INR",
+    "entry_monthly_inr": [199, 499],
+    "pro_annual_inr": [999, 2499]
+  },
+  "known_source_types": ["education_portal", "job_market_analysis", "pricing_page", "tech_news"],
+  "known_market_facts": [
+    "India produces over 1.5M engineering graduates annually",
+    "Tier-2 and Tier-3 colleges face significant campus placement gap",
+    "Resume parser compatibility (ATS) is primary customer pain point"
+  ],
+  "known_contradictions": [
+    "Global pricing ($15-$25/mo) is considered unaffordable by 80%+ Indian undergraduates"
+  ]
+}

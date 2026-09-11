@@ -1,0 +1,72 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "title": "API Request Rate (RPS) & Error Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "sum(rate(http_requests_total[1m])) by (status_code)", "legendFormat": "HTTP {{status_code}}"},
+        {"expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[1m]))", "legendFormat": "5xx Errors"}
+      ]
+    },
+    {
+      "title": "API Latency (p50, p95, p99)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "title": "Celery Queue Depths & Task Latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "celery_queue_depth", "legendFormat": "Queue: {{queue_name}}"},
+        {"expr": "histogram_quantile(0.95, sum(rate(celery_task_duration_seconds_bucket[5m])) by (le, task_name))", "legendFormat": "Duration p95 {{task_name}}"}
+      ]
+    },
+    {
+      "title": "LLM Token Consumption & Cost Rate ($/hr)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(llm_tokens_total[5m])) by (model, token_type)", "legendFormat": "{{model}} {{token_type}} tokens/sec"},
+        {"expr": "sum(rate(llm_cost_usd_total[1h])) * 3600", "legendFormat": "Cost USD/hour"}
+      ]
+    },
+    {
+      "title": "Research Job Completion & Quality",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "sum(rate(research_completion_total[1h])) by (outcome)", "legendFormat": "Outcome: {{outcome}}"},
+        {"expr": "sum(rate(citation_failures_total[1h]))", "legendFormat": "Citation Failures/hr"}
+      ]
+    },
+    {
+      "title": "Billing: MRR & Failed Payments",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {"expr": "billing_estimated_mrr_usd", "legendFormat": "MRR ($)"},
+        {"expr": "sum(billing_active_subscriptions)", "legendFormat": "Active Subscriptions"},
+        {"expr": "sum(increase(billing_failed_payments_total[24h]))", "legendFormat": "Failed Payments (24h)"}
+      ]
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["marketai", "observability", "production"],
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "MarketAI Production System Dashboard"
+}

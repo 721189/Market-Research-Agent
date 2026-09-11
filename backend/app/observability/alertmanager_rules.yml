@@ -1,0 +1,42 @@
+groups:
+  - name: marketai_production_alerts
+    rules:
+      - alert: HighApiErrorRate
+        expr: sum(rate(http_requests_total{status_code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FastAPI 5xx error rate exceeded 1%"
+
+      - alert: ApiLatencyP95High
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency exceeds 500ms target SLO"
+
+      - alert: CeleryQueueBacklog
+        expr: celery_queue_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery queue has more than 100 backlog tasks"
+
+      - alert: LLMRateLimit429Spike
+        expr: sum(rate(llm_calls_total{status_code="429"}[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 429 rate limit errors from LLM providers"
+
+      - alert: StripeBillingWebhookFailure
+        expr: increase(billing_failed_payments_total[1h]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spike in failed customer payments detected"

@@ -1,0 +1,4 @@
+{"query": "AI resume builder for Indian college students", "expected_tam_min_usd_millions": 50.0, "expected_tam_max_usd_millions": 2500.0, "expected_cagr_range_pct": [12.0, 45.0]}
+{"query": "Premium pet insurance for urban India", "expected_tam_min_usd_millions": 15.0, "expected_tam_max_usd_millions": 500.0, "expected_cagr_range_pct": [15.0, 35.0]}
+{"query": "Developer observability SaaS for startups", "expected_tam_min_usd_millions": 15000.0, "expected_tam_max_usd_millions": 55000.0, "expected_cagr_range_pct": [8.0, 22.0]}
+{"query": "Vertical CRM for dental clinics and orthodontists", "expected_tam_min_usd_millions": 1500.0, "expected_tam_max_usd_millions": 6000.0, "expected_cagr_range_pct": [8.0, 18.0]}

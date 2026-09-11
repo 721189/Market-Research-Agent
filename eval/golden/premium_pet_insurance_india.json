@@ -1,0 +1,22 @@
+{
+  "test_case_id": "golden_pet_insurance_india",
+  "product_idea": "Premium pet insurance for urban India",
+  "expected_competitors": [
+    {"name": "Digit Pet Insurance", "tier": "direct_insurtech"},
+    {"name": "Bajaj Allianz Pet Insurance", "tier": "general_insurer"},
+    {"name": "Future Generali Dog Health Cover", "tier": "general_insurer"}
+  ],
+  "expected_pricing_bands": {
+    "currency": "INR",
+    "annual_premium_range_inr": [3500, 25000]
+  },
+  "known_source_types": ["insurance_regulatory_data", "vet_association_surveys", "insurtech_pricing_tables"],
+  "known_market_facts": [
+    "India has one of the fastest growing pet populations in APAC (over 30M pets)",
+    "Urban pet healthcare expenses have increased 3x post-pandemic",
+    "Insurance penetration in pets is currently below 1%"
+  ],
+  "known_contradictions": [
+    "Most legacy policies exclude pre-existing breed-specific genetic conditions"
+  ]
+}

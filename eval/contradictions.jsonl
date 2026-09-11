@@ -1,0 +1,3 @@
+{"case_id": "pricing_discrepancy_1", "source_a": "Competitor X pricing is $15/month billed annually", "source_b": "Competitor X charges $99/month on standard tier", "expected_conflict_flag": true, "conflict_type": "pricing"}
+{"case_id": "cagr_discrepancy_1", "source_a": "The pet market is expanding at 14% CAGR through 2030", "source_b": "The sector is stagnating with -2% contraction according to Report Z", "expected_conflict_flag": true, "conflict_type": "market_growth"}
+{"case_id": "concordant_facts_1", "source_a": "Datadog operates a SaaS ingestion consumption model", "source_b": "Datadog charges based on hosts and gigabytes ingested per month", "expected_conflict_flag": false, "conflict_type": "none"}

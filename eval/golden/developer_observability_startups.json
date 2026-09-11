@@ -1,0 +1,25 @@
+{
+  "test_case_id": "golden_dev_observability_startups",
+  "product_idea": "Developer observability SaaS for startups",
+  "expected_competitors": [
+    {"name": "Datadog", "tier": "enterprise_incumbent"},
+    {"name": "New Relic", "tier": "enterprise_incumbent"},
+    {"name": "SigNoz", "tier": "open_source_challenger"},
+    {"name": "Highlight.io", "tier": "developer_focused_challenger"},
+    {"name": "HyperDX", "tier": "developer_focused_challenger"}
+  ],
+  "expected_pricing_bands": {
+    "currency": "USD",
+    "freemium_gb_ingestion": [5, 50],
+    "standard_monthly_usd": [0, 150]
+  },
+  "known_source_types": ["pricing_documentation", "open_telemetry_docs", "hacker_news_discussions", "benchmark_reports"],
+  "known_market_facts": [
+    "OpenTelemetry standard adoption is rapidly replacing proprietary APM agents",
+    "Unpredictable ingestion billing is the number one reason startups churn from incumbents",
+    "Startups prioritize unified logs, traces, and metrics in a single lightweight SDK"
+  ],
+  "known_contradictions": [
+    "Incumbents market 'free tiers' that rapidly scale to thousands of dollars per month on log bursts"
+  ]
+}

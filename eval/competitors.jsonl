@@ -1,0 +1,5 @@
+{"query": "AI resume builder for Indian college students", "expected_competitors": ["Kickresume", "Novoresume", "Enhancv", "Resumod", "CVMaker"], "unacceptable_hallucinations": ["FaketuneAI", "ResumeNonexistentCorp"], "min_count": 3}
+{"query": "Premium pet insurance for urban India", "expected_competitors": ["Digit Pet Insurance", "Bajaj Allianz Pet Insurance", "Future Generali Dog Insurance"], "unacceptable_hallucinations": ["PetSafeProFake"], "min_count": 2}
+{"query": "Developer observability SaaS for startups", "expected_competitors": ["Datadog", "New Relic", "Dynatrace", "SigNoz", "Highlight.io", "HyperDX"], "unacceptable_hallucinations": ["FakeMonitorHQ"], "min_count": 4}
+{"query": "B2B wholesale marketplace for specialty coffee roasters", "expected_competitors": ["Algrano", "Cropster", "Caravan Coffee Hub", "Trade Coffee"], "unacceptable_hallucinations": ["BeanMatrixFakeX"], "min_count": 2}
+{"query": "Vertical CRM for dental clinics and orthodontists", "expected_competitors": ["Dentrix", "Curve Dental", "Eaglesoft", "CareStack"], "unacceptable_hallucinations": ["ToothSaaSInfinity"], "min_count": 3}
