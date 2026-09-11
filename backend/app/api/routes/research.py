@@ -42,15 +42,7 @@ def create_research_job(
             detail="Rate limit exceeded. Please wait before scheduling more research jobs."
         )
 
-    # 3. Entitlement & Quota check
-    can_create, err_reason = entitlement_service.can_create_research(auth.organization, payload.mode, db)
-    if not can_create:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=err_reason or "Plan limits reached or mode not permitted on your subscription tier."
-        )
-
-    # 4. Idempotency race-free check
+    # 3. Idempotency check
     if payload.idempotency_key:
         existing = db.query(ResearchJob).filter(
             ResearchJob.org_id == auth.organization.id,
@@ -64,50 +56,20 @@ def create_research_job(
                 created_at=existing.created_at
             )
 
-    # 5. Insert new ResearchJob with atomic conflict recovery
-    job = ResearchJob(
-        org_id=auth.organization.id,
+    # 4. Strict Transactional Lock -> Recalculate -> Reserve -> Create Job -> Commit
+    job, err_reason = entitlement_service.reserve_quota_and_create_job_transactional(
+        db=db,
+        org=auth.organization,
         creator_id=auth.user.id,
-        status="QUEUED",
         mode=payload.mode,
         product_idea=payload.product_idea,
-        idempotency_key=payload.idempotency_key,
-        priority=5,
-        progress=0
+        idempotency_key=payload.idempotency_key
     )
 
-    try:
-        db.add(job)
-        db.commit()
-        db.refresh(job)
-    except IntegrityError:
-        db.rollback()
-        # Concurrent request with same idempotency_key won the race
-        if payload.idempotency_key:
-            concurrent_winner = db.query(ResearchJob).filter(
-                ResearchJob.org_id == auth.organization.id,
-                ResearchJob.idempotency_key == payload.idempotency_key
-            ).first()
-            if concurrent_winner:
-                return ResearchResponse(
-                    task_id=concurrent_winner.id,
-                    status=concurrent_winner.status,
-                    mode=concurrent_winner.mode,
-                    created_at=concurrent_winner.created_at
-                )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Conflict creating research job. Please retry with a new idempotency key."
-        )
-
-    # 6. Reserve Quota atomically before task dispatch
-    reservation = entitlement_service.reserve_quota(db, auth.organization.id, job.id, units=1)
-    if not reservation:
-        db.delete(job)
-        db.commit()
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Failed to reserve monthly research quota. Quota limit exceeded or organization suspended."
+            detail=err_reason or "Monthly research quota limit exceeded or mode restricted on plan."
         )
 
     # 7. Dispatch to Celery Queue with error fallback release

@@ -86,35 +86,52 @@ def analyze_evidence_task(self, job_id: str):
         customer = raw_result.get("customer_profile", {})
         product_idea = job.product_idea
 
-        # Stage 1: Structured Claim Extraction
-        emit_event("claim_extraction", 72, "Extracting verifiable factual and quantitative claims from evidence")
+        # Stage 1: Structured Claim Retrieval or Extraction (Single Authoritative Source)
+        emit_event("claim_extraction", 72, "Loading and validating structured claims from evidence")
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            extracted_claims = loop.run_until_complete(
-                claim_engine.extract_claims_from_evidence(
-                    product_idea=product_idea,
-                    evidence_records=evidence_records,
-                    research_context={
-                        "market_dynamics": market,
-                        "pricing_landscape": pricing,
-                        "competitors": competitors,
-                        "customer": customer
-                    }
+        existing_claims = db.query(Claim).filter(Claim.job_id == job_id).all()
+        if existing_claims:
+            persisted_claims = [
+                {
+                    "claim_text": c.claim_text,
+                    "claim_type": c.claim_type,
+                    "value": c.value,
+                    "unit": c.unit,
+                    "confidence": c.confidence,
+                    "verification_status": c.verification_status,
+                    "agreement_ratio": c.agreement_ratio,
+                    "sources": [src.url for src in c.sources] if c.sources else []
+                }
+                for c in existing_claims
+            ]
+            extracted_claims = persisted_claims
+        else:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                extracted_claims = loop.run_until_complete(
+                    claim_engine.extract_claims_from_evidence(
+                        product_idea=product_idea,
+                        evidence_records=evidence_records,
+                        research_context={
+                            "market_dynamics": market,
+                            "pricing_landscape": pricing,
+                            "competitors": competitors,
+                            "customer": customer
+                        }
+                    )
                 )
-            )
-        finally:
-            loop.close()
+            finally:
+                loop.close()
 
-        # Stage 2: Claim Validation & DB Linking
-        emit_event("claim_validation", 76, "Validating extracted claims and establishing source provenance graph")
-        persisted_claims = claim_engine.persist_claims_and_link_evidence(
-            db=db,
-            job_id=job_id,
-            claims_data=extracted_claims,
-            evidence_objs=evidence_objs
-        )
+            # Stage 2: Claim Validation & DB Linking
+            emit_event("claim_validation", 76, "Validating extracted claims and establishing source provenance graph")
+            persisted_claims = claim_engine.persist_claims_and_link_evidence(
+                db=db,
+                job_id=job_id,
+                claims_data=extracted_claims,
+                evidence_objs=evidence_objs
+            )
 
         # Stage 3 & 4: Cross-Source Concordance and Conflict Detection
         emit_event("cross_validation", 80, "Evaluating cross-source concordance and scanning for discrepancies")

@@ -204,28 +204,40 @@ def get_auth_context(
                 break
 
         if not chosen_membership:
-            # Sync / auto-provision PostgreSQL organization if created on frontend (e.g. Firestore personal org)
             existing_org = db.query(Organization).filter(Organization.id == target_org_id).first()
-            if not existing_org:
-                existing_org = Organization(
-                    id=target_org_id,
-                    name=f"{user.email.split('@')[0]}'s Workspace",
-                    slug=f"org-{target_org_id[-8:] if len(target_org_id) >= 8 else target_org_id}",
-                    plan="free",
-                    status="active"
+            if existing_org:
+                # Existing organization: Strict Security Check - Deny access if user is not a member!
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User is not a member of the requested organization"
                 )
-                db.add(existing_org)
-                db.commit()
-                db.refresh(existing_org)
+            else:
+                # Personal org ID matching user's UID (e.g. org_uid): Only auto-provision personal workspace for the owner
+                if target_org_id == f"org_{user.firebase_uid}" or target_org_id == f"org_{user.id}":
+                    new_org = Organization(
+                        id=target_org_id,
+                        name=f"{user.email.split('@')[0]}'s Workspace",
+                        slug=f"org-{target_org_id[-8:]}",
+                        plan="free",
+                        status="active"
+                    )
+                    db.add(new_org)
+                    db.commit()
+                    db.refresh(new_org)
 
-            chosen_membership = OrganizationMember(
-                org_id=existing_org.id,
-                user_id=user.id,
-                role="owner"
-            )
-            db.add(chosen_membership)
-            db.commit()
-            db.refresh(chosen_membership)
+                    chosen_membership = OrganizationMember(
+                        org_id=new_org.id,
+                        user_id=user.id,
+                        role="owner"
+                    )
+                    db.add(chosen_membership)
+                    db.commit()
+                    db.refresh(chosen_membership)
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Organization not found or access denied"
+                    )
     else:
         chosen_membership = memberships[0]
 

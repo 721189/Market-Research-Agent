@@ -132,8 +132,9 @@ class ClaimEngine:
         and computes verification status based on multi-source coverage.
         """
         persisted_claims = []
+        evidence_by_id = {ev.id: ev for ev in evidence_objs}
         evidence_by_url = {ev.url: ev for ev in evidence_objs}
-        evidence_by_domain = {ev.domain: ev for ev in evidence_objs}
+        evidence_by_domain = {ev.domain: ev for ev in evidence_objs if ev.domain}
 
         for c_data in claims_data:
             claim_text = c_data.get("claim_text", "").strip()
@@ -144,17 +145,37 @@ class ClaimEngine:
             value = c_data.get("value")
             unit = c_data.get("unit")
             conf = int(c_data.get("confidence", 70))
-            src_url = c_data.get("source_url", "")
+            verbatim_quote = c_data.get("verbatim_quote")
 
-            # Match associated evidence
-            matched_evidence = []
-            if src_url in evidence_by_url:
-                matched_evidence.append(evidence_by_url[src_url])
-            else:
-                domain = urlparse(src_url).netloc.lower() if src_url else ""
-                if domain in evidence_by_domain:
-                    matched_evidence.append(evidence_by_domain[domain])
+            # Match associated set of evidence objects by evidence_id, url, or domain
+            matched_evidence_set = set()
 
+            # 1. Match by explicit evidence_ids list
+            ev_ids = c_data.get("evidence_ids") or []
+            for eid in ev_ids:
+                if eid in evidence_by_id:
+                    matched_evidence_set.add(evidence_by_id[eid])
+
+            # 2. Match by sources / source_url
+            source_urls = c_data.get("sources") or []
+            if isinstance(source_urls, str):
+                source_urls = [source_urls]
+            if c_data.get("source_url"):
+                source_urls.append(c_data["source_url"])
+
+            for src in source_urls:
+                if not src:
+                    continue
+                if src in evidence_by_id:
+                    matched_evidence_set.add(evidence_by_id[src])
+                elif src in evidence_by_url:
+                    matched_evidence_set.add(evidence_by_url[src])
+                else:
+                    domain = urlparse(src).netloc.lower() if "://" in src else src.lower()
+                    if domain in evidence_by_domain:
+                        matched_evidence_set.add(evidence_by_domain[domain])
+
+            matched_evidence = list(matched_evidence_set)
             num_sources = len(matched_evidence)
             if num_sources >= 2:
                 verif_status = "CORROBORATED"
@@ -172,9 +193,11 @@ class ClaimEngine:
                 "value": value,
                 "unit": unit,
                 "confidence": conf,
+                "verbatim_quote": verbatim_quote,
                 "verification_status": verif_status,
                 "agreement_ratio": agreement_ratio,
-                "sources": [ev.url for ev in matched_evidence] if matched_evidence else ([src_url] if src_url else [])
+                "evidence_ids": [ev.id for ev in matched_evidence],
+                "sources": [ev.url for ev in matched_evidence]
             }
             persisted_claims.append(claim_record_dict)
 
@@ -187,6 +210,7 @@ class ClaimEngine:
                         value=str(value) if value is not None else None,
                         unit=unit,
                         confidence=conf,
+                        verbatim_quote=verbatim_quote,
                         extraction_method="llm_grounded",
                         verification_status=verif_status,
                         agreement_ratio=agreement_ratio

@@ -87,13 +87,101 @@ class EntitlementService:
         return True, None
 
     @classmethod
-    def reserve_quota(cls, db: Session, org_id: str, job_id: str, units: int = 1) -> Optional[ResearchUsage]:
+    def reserve_quota_and_create_job_transactional(
+        cls,
+        db: Session,
+        org: Organization,
+        creator_id: str,
+        mode: str,
+        product_idea: str,
+        idempotency_key: Optional[str] = None
+    ) -> Tuple[Optional[Any], Optional[str]]:
         """
-        Atomically creates a quota reservation for an in-flight research job.
-        Uses transactional locking when available.
+        Truly transactional quota reservation and job creation:
+        1. Lock organization row with with_for_update()
+        2. Recalculate month-to-date committed usage + active reservations
+        3. Validate against plan limit
+        4. Create ResearchJob and ResearchUsage reservation in same transaction
+        5. Commit atomically
         """
         try:
-            # Transactional row lock on organization if database supports with_for_update
+            # 1. Lock organization row
+            try:
+                locked_org = db.query(Organization).filter(Organization.id == org.id).with_for_update().first()
+            except Exception:
+                locked_org = db.query(Organization).filter(Organization.id == org.id).first()
+
+            if not locked_org or locked_org.status != "active":
+                return None, f"Organization is currently {locked_org.status if locked_org else 'not found'}."
+
+            plan_conf = PLAN_LIMITS.get(locked_org.plan, PLAN_LIMITS["free"])
+            if mode not in plan_conf["allowed_modes"]:
+                return None, f"Research mode '{mode}' is not permitted on the {locked_org.plan.capitalize()} plan."
+
+            # 2. Recalculate current month's usage
+            now = datetime.datetime.utcnow()
+            first_day_of_month = datetime.datetime(now.year, now.month, 1)
+
+            committed_count = db.query(UsageEvent).filter(
+                UsageEvent.org_id == locked_org.id,
+                UsageEvent.created_at >= first_day_of_month
+            ).count()
+
+            active_reservations = db.query(ResearchUsage).filter(
+                ResearchUsage.org_id == locked_org.id,
+                ResearchUsage.status == "RESERVED",
+                ResearchUsage.reserved_at >= first_day_of_month
+            ).count()
+
+            total_consumed_and_pending = committed_count + active_reservations
+            max_allowed = plan_conf["monthly_researches"]
+
+            if total_consumed_and_pending >= max_allowed:
+                return None, f"Monthly research quota exceeded ({total_consumed_and_pending}/{max_allowed})."
+
+            # 3. Create job and reservation in same atomic block
+            from backend.app.models.research import ResearchJob
+            job = ResearchJob(
+                org_id=locked_org.id,
+                creator_id=creator_id,
+                status="QUEUED",
+                mode=mode,
+                product_idea=product_idea,
+                idempotency_key=idempotency_key,
+                priority=5,
+                progress=0
+            )
+            db.add(job)
+            db.flush() # Populate job.id before reservation FK
+
+            reservation = ResearchUsage(
+                org_id=locked_org.id,
+                job_id=job.id,
+                status="RESERVED",
+                units_reserved=1,
+                units_consumed=0,
+                billing_rule="standard",
+                reserved_at=now
+            )
+            db.add(reservation)
+
+            # 4. Atomic Commit
+            db.commit()
+            db.refresh(job)
+            return job, None
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Transactional quota reservation failed for org {org.id}: {e}")
+            return None, str(e)
+
+    @classmethod
+    def reserve_quota(cls, db: Session, org_id: str, job_id: str, mode: str = "quick", units: int = 1) -> Optional[ResearchUsage]:
+        """
+        Atomically checks limits and creates a quota reservation for an in-flight research job.
+        Strict transactional sequence: Lock -> recalculate -> reserve.
+        """
+        try:
+            # 1. Transactional row lock on organization
             try:
                 org = db.query(Organization).filter(Organization.id == org_id).with_for_update().first()
             except Exception:
@@ -103,6 +191,39 @@ class EntitlementService:
                 logger.error(f"Cannot reserve quota: organization {org_id} not found")
                 return None
 
+            if org.status != "active":
+                logger.warning(f"Organization {org_id} is inactive ({org.status})")
+                return None
+
+            plan_conf = PLAN_LIMITS.get(org.plan, PLAN_LIMITS["free"])
+            if mode not in plan_conf.get("allowed_modes", ["quick"]):
+                logger.warning(f"Mode '{mode}' not permitted for plan '{org.plan}'")
+                return None
+
+            # 2. Recalculate usage under lock
+            now = datetime.datetime.utcnow()
+            first_day_of_month = datetime.datetime(now.year, now.month, 1)
+
+            committed_count = db.query(UsageEvent).filter(
+                UsageEvent.org_id == org_id,
+                UsageEvent.created_at >= first_day_of_month
+            ).count()
+
+            active_reservations = db.query(ResearchUsage).filter(
+                ResearchUsage.org_id == org_id,
+                ResearchUsage.status == "RESERVED",
+                ResearchUsage.reserved_at >= first_day_of_month
+            ).count()
+
+            total_consumed = committed_count + active_reservations
+            max_allowed = plan_conf.get("monthly_researches", 10)
+
+            # 3. Check quota limit
+            if total_consumed >= max_allowed:
+                logger.warning(f"Quota limit reached for org {org_id}: {total_consumed}/{max_allowed}")
+                return None
+
+            # 4. Create reservation object (part of active transaction)
             reservation = ResearchUsage(
                 org_id=org_id,
                 job_id=job_id,
@@ -110,15 +231,12 @@ class EntitlementService:
                 units_reserved=units,
                 units_consumed=0,
                 billing_rule="standard",
-                reserved_at=datetime.datetime.utcnow()
+                reserved_at=now
             )
             db.add(reservation)
-            db.commit()
-            db.refresh(reservation)
             return reservation
         except Exception as e:
             logger.error(f"Failed to reserve research quota for job {job_id}: {e}")
-            db.rollback()
             return None
 
     @classmethod

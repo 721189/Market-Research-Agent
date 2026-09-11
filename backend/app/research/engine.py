@@ -137,21 +137,11 @@ class ResearchEngine:
         for url in cleaned_sources:
             # Real evidence harvesting with SSRF protection and content hashing
             harvested = await evidence_collector.harvest_and_hash_evidence(url)
-            if harvested:
-                ev_data = harvested
-            else:
-                domain = urlparse(url).netloc or "web"
-                auth_score = evidence_collector.compute_authority(url)
-                fresh_score = evidence_collector.compute_freshness(datetime.datetime.utcnow())
-                content_hash = evidence_collector.compute_hash(f"{url}-{product_idea}")
-                ev_data = {
-                    "url": url,
-                    "domain": domain,
-                    "authority_score": auth_score,
-                    "freshness_score": fresh_score,
-                    "content_hash": content_hash,
-                    "snippet": f"Retrieved source content from {url}"
-                }
+            if not harvested:
+                logger.info(f"Skipping unharvestable or invalid URL: {url}")
+                continue
+
+            ev_data = harvested
             evidence_records.append(ev_data)
 
             if db:
@@ -175,11 +165,10 @@ class ResearchEngine:
         # Extract and persist structured claims linked to evidence
         extracted_claims = await claim_engine.extract_claims_from_evidence(
             product_idea=product_idea,
-            evidence_list=evidence_records,
+            evidence_records=evidence_records,
             research_context={"market": market, "pricing": pricing, "competitors": competitors}
         )
-        if db and evidence_objs:
-            claim_engine.persist_claims_and_link_evidence(db, research_id, extracted_claims, evidence_objs)
+        persisted_claims = claim_engine.persist_claims_and_link_evidence(db, research_id, extracted_claims, evidence_objs)
 
         check_cancellation("post-evidence")
 
@@ -259,7 +248,8 @@ class ResearchEngine:
                 "scenarios": financial_scenarios
             },
             "confidence": confidence_result,
-            "evidence_sources": evidence_records
+            "evidence_sources": evidence_records,
+            "structured_claims": persisted_claims if 'persisted_claims' in locals() else []
         }
 
         return structured_output

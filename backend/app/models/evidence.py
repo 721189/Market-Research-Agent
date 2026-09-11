@@ -45,6 +45,7 @@ class Evidence(Base):
     authority_score = Column(Integer, default=50, nullable=False) # 0 - 100
     freshness_score = Column(Integer, default=50, nullable=False) # 0 - 100
     source_type = Column(String, default="webpage", nullable=False) # official, marketplace, article, financial
+    raw_snippet = Column(Text, nullable=True)
 
     try:
         job = relationship("ResearchJob", back_populates="evidence")
@@ -72,6 +73,7 @@ class Claim(Base):
     extraction_method = Column(String, default="llm_grounded", nullable=False) # llm_grounded, cross_validation, heuristic, financial_model
     verification_status = Column(String, default="UNVERIFIED", nullable=False) # CORROBORATED, DISPUTED, SINGLE_SOURCE, UNVERIFIED
     agreement_ratio = Column(String, default="1/1", nullable=False) # e.g. "2/3"
+    verbatim_quote = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
     try:

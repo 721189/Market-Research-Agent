@@ -260,8 +260,10 @@ class EvidenceCollector:
             authority = cls.compute_authority(canonical_url)
             freshness = cls.compute_freshness(retrieved_at=now, published_at=published_at)
 
+            domain = urlparse(canonical_url).netloc.lower()
             return {
                 "url": canonical_url,
+                "domain": domain,
                 "content_hash": content_hash,
                 "raw_byte_size": len(raw_bytes),
                 "etag": headers.get("etag"),

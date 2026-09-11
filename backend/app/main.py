@@ -31,11 +31,7 @@ async def lifespan(app: FastAPI):
     logger.info("Verifying database connectivity on startup...")
     db_connected = wait_for_db(max_retries=5, initial_delay=1.0)
     if db_connected:
-        try:
-            Base.metadata.create_all(bind=engine)
-            logger.info("Database tables initialized/verified successfully.")
-        except Exception as e:
-            logger.warning(f"Database table initialization warning (may already exist via Alembic): {e}")
+        logger.info("Database connection established successfully. Schema managed by Alembic migrations.")
     else:
         logger.error("Database connection could not be established after maximum retries. Operating in degraded state.")
 
