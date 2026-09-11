@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status, Header, Request
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Any, Set, Dict, List, Union
 from backend.app.db.session import get_db
 from backend.app.auth.firebase import verify_token
 from backend.app.auth.rbac import has_permission, ROLE_PERMISSIONS
@@ -11,25 +11,60 @@ from backend.app.services.entitlement import entitlement_service
 from backend.app.config import settings
 
 class AuthContext:
-    def __init__(self, user: User, organization: Organization, role: str, auth_method: str = "jwt", permissions: Optional[Any] = None):
+    def __init__(
+        self,
+        user: Any,
+        organization: Any,
+        role: str,
+        auth_method: str = "jwt",
+        permissions: Optional[Any] = None
+    ):
         self.user = user
         self.organization = organization
         self.role = role
         self.auth_method = auth_method
-        self.permissions = permissions if permissions is not None else ROLE_PERMISSIONS.get(role, set())
+        if permissions is not None:
+            self.permissions = set(permissions)
+        else:
+            self.permissions = set(ROLE_PERMISSIONS.get(role, set()))
+
+    @property
+    def user_id(self) -> Optional[str]:
+        return getattr(self.user, "id", None)
+
+    @property
+    def org_id(self) -> Optional[str]:
+        return getattr(self.organization, "id", None)
+
+    @property
+    def is_superuser(self) -> bool:
+        return bool(getattr(self.user, "is_superuser", False))
+
+    @property
+    def is_active_org(self) -> bool:
+        return getattr(self.organization, "status", "") == "active"
 
     def has_permission(self, permission: str) -> bool:
-        if getattr(self.user, "is_superuser", False):
+        if self.is_superuser:
             return True
         if self.permissions and (permission in self.permissions or "*" in self.permissions):
             return True
         return has_permission(self.role, permission)
 
-    def require_permission(self, permission: str):
+    def require_permission(self, permission: str) -> None:
         if not self.has_permission(permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission denied: '{permission}' required"
+            )
+
+    def require_tenant_access(self, target_org_id: str) -> None:
+        if self.is_superuser:
+            return
+        if self.org_id != target_org_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Resource belongs to a different tenant organization"
             )
 
 def get_current_user(
