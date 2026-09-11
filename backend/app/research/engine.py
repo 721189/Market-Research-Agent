@@ -21,6 +21,7 @@ from backend.app.research.pricing import extract_pricing_landscape
 from backend.app.research.customer import extract_customer_profiles
 from backend.app.research.financial import financial_engine
 from backend.app.research.evidence import evidence_collector
+from backend.app.research.claims import claim_engine
 from backend.app.research.confidence import confidence_engine
 from backend.app.research.validators import research_validator
 from backend.app.research.synthesis import synthesize_strategic_report
@@ -121,8 +122,8 @@ class ResearchEngine:
         )
         check_cancellation("post-retrieval")
 
-        # Stage 3: Evidence extraction & persistence
-        emit_event("evidence_extraction", 50, "Extracting and indexing verifiable evidence and claims")
+        # Stage 3: Evidence extraction, content harvesting & claim persistence
+        emit_event("evidence_extraction", 50, "Extracting, harvesting content, and indexing claims")
         all_sources = []
         for c in competitors:
             all_sources.extend(c.get("sources", []))
@@ -134,34 +135,51 @@ class ResearchEngine:
         evidence_records = []
         evidence_objs = []
         for url in cleaned_sources:
-            domain = urlparse(url).netloc or "web"
-            auth_score = evidence_collector.compute_authority(url)
-            fresh_score = evidence_collector.compute_freshness(datetime.datetime.utcnow())
-            content_hash = evidence_collector.compute_hash(f"{url}-{product_idea}")
-            
-            ev_data = {
-                "url": url,
-                "domain": domain,
-                "authority_score": auth_score,
-                "freshness_score": fresh_score,
-                "content_hash": content_hash
-            }
+            # Real evidence harvesting with SSRF protection and content hashing
+            harvested = await evidence_collector.harvest_and_hash_evidence(url)
+            if harvested:
+                ev_data = harvested
+            else:
+                domain = urlparse(url).netloc or "web"
+                auth_score = evidence_collector.compute_authority(url)
+                fresh_score = evidence_collector.compute_freshness(datetime.datetime.utcnow())
+                content_hash = evidence_collector.compute_hash(f"{url}-{product_idea}")
+                ev_data = {
+                    "url": url,
+                    "domain": domain,
+                    "authority_score": auth_score,
+                    "freshness_score": fresh_score,
+                    "content_hash": content_hash,
+                    "snippet": f"Retrieved source content from {url}"
+                }
             evidence_records.append(ev_data)
 
             if db:
                 ev_obj = Evidence(
                     job_id=research_id,
-                    url=url,
-                    domain=domain,
-                    authority_score=auth_score,
-                    freshness_score=fresh_score,
-                    content_hash=content_hash
+                    url=ev_data["url"],
+                    domain=ev_data["domain"],
+                    authority_score=ev_data["authority_score"],
+                    freshness_score=ev_data["freshness_score"],
+                    content_hash=ev_data["content_hash"],
+                    raw_snippet=ev_data.get("snippet", "")
                 )
                 db.add(ev_obj)
                 evidence_objs.append(ev_obj)
 
         if db:
             db.commit()
+            for obj in evidence_objs:
+                db.refresh(obj)
+
+        # Extract and persist structured claims linked to evidence
+        extracted_claims = await claim_engine.extract_claims_from_evidence(
+            product_idea=product_idea,
+            evidence_list=evidence_records,
+            research_context={"market": market, "pricing": pricing, "competitors": competitors}
+        )
+        if db and evidence_objs:
+            claim_engine.persist_claims_and_link_evidence(db, research_id, extracted_claims, evidence_objs)
 
         check_cancellation("post-evidence")
 

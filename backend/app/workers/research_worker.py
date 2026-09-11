@@ -9,6 +9,7 @@ from backend.app.models.research import ResearchJob, ResearchRun, ResearchEvent
 from backend.app.models.billing import UsageEvent
 from backend.app.research.engine import research_engine, JobCancelledException
 from backend.app.services.cost import cost_service
+from backend.app.services.entitlement import entitlement_service
 
 logger = get_task_logger(__name__)
 
@@ -70,6 +71,9 @@ def execute_research_job(self, job_id: str):
         run_record.completed_at = datetime.datetime.utcnow()
         db.commit()
 
+        # Commit quota reservation to COMMITTED
+        entitlement_service.commit_quota(db, job.id)
+
         # Finalize and persist actual metered usage and exact USD cost
         cost_service.finalize_and_persist(
             db=db,
@@ -95,6 +99,7 @@ def execute_research_job(self, job_id: str):
                 run.status = "CANCELLED"
                 run.completed_at = datetime.datetime.utcnow()
             db.commit()
+            entitlement_service.release_quota(db, job_id, reason="job_cancelled")
         except Exception as db_err:
             logger.warning(f"Error persisting cancellation state for {job_id}: {db_err}")
         return
@@ -139,6 +144,7 @@ def execute_research_job(self, job_id: str):
                     run.error_message = str(e)
                     run.completed_at = datetime.datetime.utcnow()
                 db.commit()
+                entitlement_service.release_quota(db, job_id, reason="terminal_execution_failure")
         except MaxRetriesExceededError:
             logger.error(f"Max retries exceeded for research job {job_id}")
             raise

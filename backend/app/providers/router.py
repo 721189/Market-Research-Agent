@@ -182,4 +182,25 @@ class LLMGateway:
                 model_used=model or self._default_model
             )
 
+    async def generate(
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: int = 2048,
+        provider_name: Optional[str] = None
+    ) -> LLMResponse:
+        """
+        Convenience method to generate text directly using LLM request retry logic.
+        """
+        req = LLMRequest(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            model=model or self._default_model,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        return await self.execute_with_retry(req, provider_name=provider_name)
+
 llm_gateway = LLMGateway()

@@ -100,15 +100,34 @@ def create_research_job(
             detail="Conflict creating research job. Please retry with a new idempotency key."
         )
 
-    # 6. Reserve Quota atomically
-    entitlement_service.reserve_quota(db, auth.organization.id, job.id, units=1)
+    # 6. Reserve Quota atomically before task dispatch
+    reservation = entitlement_service.reserve_quota(db, auth.organization.id, job.id, units=1)
+    if not reservation:
+        db.delete(job)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Failed to reserve monthly research quota. Quota limit exceeded or organization suspended."
+        )
 
-    # 7. Dispatch to Celery Queue
+    # 7. Dispatch to Celery Queue with error fallback release
     queue_name = "research.quick" if payload.mode == "quick" else "research.deep"
-    if payload.mode == "quick":
-        execute_quick_research_job.apply_async(args=[job.id], queue=queue_name)
-    else:
-        execute_research_job.apply_async(args=[job.id], queue=queue_name)
+    try:
+        if payload.mode == "quick":
+            execute_quick_research_job.apply_async(args=[job.id], queue=queue_name)
+        else:
+            execute_research_job.apply_async(args=[job.id], queue=queue_name)
+    except Exception as dispatch_err:
+        logger.error(f"Failed to dispatch research job {job.id} to queue {queue_name}: {dispatch_err}")
+        entitlement_service.release_quota(db, job.id, reason="queue_dispatch_failure")
+        job.status = "FAILED"
+        job.error_code = "DISPATCH_ERROR"
+        job.error_message = "Failed to submit job to task queue"
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to schedule research task. Please retry."
+        )
 
     return ResearchResponse(
         task_id=job.id,

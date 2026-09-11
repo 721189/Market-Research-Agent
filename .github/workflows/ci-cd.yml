@@ -37,7 +37,7 @@ jobs:
       - name: Frontend ESLint & TypeScript Verification
         run: |
           npm run lint
-          npx tsc --noEmit || true
+          npx tsc --noEmit
 
       - name: Setup Python Runtime
         uses: actions/setup-python@v5
@@ -54,8 +54,8 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          flake8 backend/ --max-line-length=120 --extend-ignore=E203,W503,E501,F401,F403 --exclude=backend/alembic/,alembic/ || true
-          mypy backend/app/ --ignore-missing-imports --no-strict-optional --allow-untyped-defs || true
+          flake8 backend/ --max-line-length=120 --extend-ignore=E203,W503,E501,F401,F403 --exclude=backend/alembic/,alembic/
+          mypy backend/app/ --ignore-missing-imports --no-strict-optional --allow-untyped-defs
 
   # =========================================================================
   # Stage 2: Unit & Integration Testing
@@ -112,7 +112,7 @@ jobs:
           SECRET_KEY: ci-test-secret-key-environment
           FIREBASE_PROJECT_ID: gen-lang-client-0526957989
         run: |
-          pytest tests/ --cov=backend/app --cov-report=xml || true
+          pytest tests/ --cov=backend/app --cov-report=xml
 
   # =========================================================================
   # Stage 3: Security Scanning (SAST) & Threat Defense Matrix
@@ -138,7 +138,7 @@ jobs:
 
       - name: Static Application Security Testing (Bandit SAST)
         run: |
-          bandit -r backend/app -ll -ii --exclude backend/alembic || true
+          bandit -r backend/app -ll -ii --exclude backend/alembic
 
       - name: Execute Security & Threat Test Matrix
         env:
@@ -170,7 +170,7 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python -c "from eval.thresholds import release_validator; from eval.evaluator import EvalMetrics; release_validator.enforce_or_fail(EvalMetrics(88.0, 75.0, 96.5, 96.0, 94.0, 92.0, 0.5, 1.2, 95.0, 100.0))"
+          python eval/run_eval.py
 
   # =========================================================================
   # Stage 5: Build Production Artifacts & Docker Images
@@ -214,11 +214,24 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Deploy Container to Staging Cluster
-        run: echo "Deploying container image to staging environment..."
+      - name: Setup Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Run Synthetic Smoke Verification
-        run: echo "Executing synthetic smoke tests against staging endpoints. Status: 200 OK."
+      - name: Install kubectl & Validate Kubernetes Manifests
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl apply --dry-run=client -f deploy/k8s/production-orchestration.yaml
+
+      - name: Execute Disaster Recovery & SLO Drill
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python scripts/disaster_recovery_drill.py
 
   # =========================================================================
   # Stage 7: Production Release (Zero-Downtime Rolling Update)
@@ -231,7 +244,7 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Execute Zero-Downtime Rolling Production Release
+      - name: Validate Production Deployment Policy & Rollout Strategy
         run: |
-          echo "Initiating progressive rolling deployment to production cluster..."
-          echo "Traffic switched to new container version with 100% health check pass rate."
+          kubectl apply --dry-run=server -f deploy/k8s/production-orchestration.yaml || kubectl apply --dry-run=client -f deploy/k8s/production-orchestration.yaml
+          echo "Production Kubernetes manifests and deployment strategies validated successfully."

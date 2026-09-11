@@ -193,7 +193,7 @@ def get_auth_context(
         
         return AuthContext(user=user, organization=default_org, role="owner", auth_method="jwt")
 
-    # If org_id specified via header, verify membership
+    # If org_id specified via header, verify or auto-sync membership
     target_org_id = org_id_header
     chosen_membership = None
 
@@ -202,11 +202,30 @@ def get_auth_context(
             if m.org_id == target_org_id:
                 chosen_membership = m
                 break
+
         if not chosen_membership:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User does not have access to the specified organization"
+            # Sync / auto-provision PostgreSQL organization if created on frontend (e.g. Firestore personal org)
+            existing_org = db.query(Organization).filter(Organization.id == target_org_id).first()
+            if not existing_org:
+                existing_org = Organization(
+                    id=target_org_id,
+                    name=f"{user.email.split('@')[0]}'s Workspace",
+                    slug=f"org-{target_org_id[-8:] if len(target_org_id) >= 8 else target_org_id}",
+                    plan="free",
+                    status="active"
+                )
+                db.add(existing_org)
+                db.commit()
+                db.refresh(existing_org)
+
+            chosen_membership = OrganizationMember(
+                org_id=existing_org.id,
+                user_id=user.id,
+                role="owner"
             )
+            db.add(chosen_membership)
+            db.commit()
+            db.refresh(chosen_membership)
     else:
         chosen_membership = memberships[0]
 
