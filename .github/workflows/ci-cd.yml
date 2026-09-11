@@ -310,6 +310,6 @@ jobs:
             kubectl rollout status deployment/prod-marketai-api -n marketai-production --timeout=180s
             kubectl rollout status deployment/prod-marketai-worker -n marketai-production --timeout=180s
           else
-            echo "No KUBECONFIG secret provided - dry-run validation succeeded."
-            kubectl apply -f deploy/k8s/overlays/production/rendered-prod.yaml --dry-run=client
+            echo "CRITICAL: Missing KUBECONFIG secret for production deployment. Production deployment failed closed." >&2
+            exit 1
           fi

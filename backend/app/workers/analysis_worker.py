@@ -89,7 +89,11 @@ def analyze_evidence_task(self, job_id: str):
     try:
         from backend.app.research.policy import get_research_policy
         policy = get_research_policy(job.mode)
-        cost_service.start_job_metering(job_id, max_llm_calls=policy.max_llm_calls)
+        cost_service.start_job_metering(
+            job_id,
+            max_llm_calls=policy.max_llm_calls,
+            max_context_tokens=policy.max_context_tokens
+        )
 
         check_cancellation("pre_analysis")
         job.status = "ANALYZING"

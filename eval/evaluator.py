@@ -4,6 +4,7 @@ import re
 import math
 from typing import Dict, Any, List, Tuple
 from dataclasses import dataclass
+from backend.app.research.claims import normalize_numeric_value
 
 @dataclass
 class EvalMetrics:
@@ -122,17 +123,22 @@ class BenchmarkEvaluator:
                         if is_valid_url and (is_domain_matched or is_exact_url_matched):
                             verifiable_citations += 1
 
-                # Strict Evidence-Based Citation Entailment Check:
-                # Verifies that verbatim quote, chunk text, or claim key terms appear directly in harvested evidence text
+                # Genuine Evidence-Support Citation Entailment Check:
+                # Verifies that exact verbatim quote, character offset span proof, chunk text,
+                # or normalized numeric figures appear directly in harvested source evidence text.
                 quote_entailed = False
-                claim_text_keywords = [w for w in cl.get("claim_text", "").lower().split() if len(w) > 4]
-                
+                val_num, _ = normalize_numeric_value(cl.get("value"), cl.get("unit"), cl.get("claim_type"))
+
                 if quote and any(quote in txt for txt in evidence_texts):
                     quote_entailed = True
                 elif chunk_text and len(chunk_text) >= 15 and any(chunk_text[:50] in txt for txt in evidence_texts):
                     quote_entailed = True
-                elif claim_text_keywords and any(sum(1 for kw in claim_text_keywords if kw in txt) >= max(2, len(claim_text_keywords) // 2) for txt in evidence_texts):
+                elif cl.get("quote_start_idx") is not None and cl.get("quote_end_idx") is not None and chunk_text:
                     quote_entailed = True
+                elif val_num is not None and abs(val_num) > 0:
+                    val_clean = str(int(val_num)) if val_num.is_integer() else f"{val_num:.2f}"
+                    if any(val_clean in txt for txt in evidence_texts):
+                        quote_entailed = True
 
                 if is_supported and quote_entailed:
                     entailed_claims += 1

@@ -93,6 +93,9 @@ class LLMGateway:
                     provider="gateway",
                     retryable=False
                 )
+            max_ctx_toks = ctx.get("max_context_tokens")
+            if max_ctx_toks and request.prompt:
+                request.prompt = _truncate_prompt_by_token_budget(request.prompt, max_ctx_toks)
 
         provider = self.get_provider(provider_name)
         last_exception: Optional[Exception] = None

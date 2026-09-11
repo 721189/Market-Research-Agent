@@ -48,8 +48,14 @@ def execute_research_job(self, job_id: str):
         job.started_at = datetime.datetime.utcnow()
         db.commit()
 
-        # Start accurate LLM & search metering
-        cost_service.start_job_metering(job.id)
+        # Start accurate LLM & search metering with research policy controls
+        from backend.app.research.policy import get_research_policy
+        policy = get_research_policy(job.mode or "quick")
+        cost_service.start_job_metering(
+            job.id,
+            max_llm_calls=policy.max_llm_calls,
+            max_context_tokens=policy.max_context_tokens
+        )
 
         # Run real research engine async
         loop = asyncio.new_event_loop()

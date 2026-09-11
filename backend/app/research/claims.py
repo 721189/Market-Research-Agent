@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
 
 try:
@@ -58,7 +58,7 @@ def normalize_numeric_value(val: Any, unit: Optional[str] = None, claim_type: Op
 
     # Dimension classification
     dimension = "other"
-    if any(c in val_lower for c in ["$", "€", "£", "usd", "eur", "gbp"]) or any(u in unit_lower for u in ["usd", "eur", "gbp", "currency", "$", "dollar"]) or claim_type_lower in ["competitor_pricing", "cogs_assumption", "entry_tier_usd", "mid_tier_usd", "enterprise_tier_usd"]:
+    if any(c in val_lower for c in ["$", "€", "£", "usd", "eur", "gbp"]) or any(u in unit_lower for u in ["usd", "eur", "gbp", "currency", "$", "dollar", "euro"]) or claim_type_lower in ["competitor_pricing", "cogs_assumption", "entry_tier_usd", "mid_tier_usd", "enterprise_tier_usd"]:
         dimension = "currency"
     elif "%" in val_lower or any(u in unit_lower for u in ["%", "percent", "percentage", "ratio"]) or claim_type_lower in ["cagr", "growth_rate", "margin", "gross_margin"]:
         dimension = "percentage"
@@ -80,16 +80,49 @@ def normalize_numeric_value(val: Any, unit: Optional[str] = None, claim_type: Op
     elif re.search(r'\b(thousand)\b', search_text) or re.search(r'[\d.]+\s*k\b', search_text):
         multiplier = 1e3
 
+    # Check for negative value
+    is_negative = "-" in val_str
+
     cleaned_num_str = re.sub(r'[^\d.]', '', val_str)
     if not cleaned_num_str:
         return None, dimension
 
     try:
         base_num = float(cleaned_num_str)
+        if is_negative:
+            base_num = -abs(base_num)
         normalized_val = base_num * multiplier
         return normalized_val, dimension
     except ValueError:
         return None, dimension
+
+def extract_claim_scope(claim_data: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extracts time period (e.g. 2024 vs 2025) and geographical scope (e.g. US vs global)
+    from claim attributes to avoid false positive contradiction flags.
+    """
+    search_str = " ".join([
+        str(claim_data.get("claim_text") or ""),
+        str(claim_data.get("verbatim_quote") or ""),
+        str(claim_data.get("unit") or "")
+    ]).lower()
+
+    # Time period extraction (e.g. years)
+    year_match = re.search(r'\b(202\d|203\d|201\d)\b', search_str)
+    time_period = year_match.group(1) if year_match else None
+
+    # Geography scope extraction
+    geography = None
+    if re.search(r'\b(us|usa|united states|north america|domestic)\b', search_str):
+        geography = "us"
+    elif re.search(r'\b(global|worldwide|international|world)\b', search_str):
+        geography = "global"
+    elif re.search(r'\b(europe|eu|uk|united kingdom)\b', search_str):
+        geography = "europe"
+    elif re.search(r'\b(apac|asia|china|japan)\b', search_str):
+        geography = "apac"
+
+    return time_period, geography
 
 class ClaimEngine:
     @classmethod
@@ -163,7 +196,8 @@ class ClaimEngine:
                         "unit": "USD",
                         "verbatim_quote": str(md.get("market_size")),
                         "source_url": (md.get("sources") or [""])[0],
-                        "confidence": 75
+                        "confidence": 75,
+                        "extraction_method": "heuristic_fallback"
                     })
                 if md.get("growth_rate"):
                     fallback_claims.append({
@@ -173,7 +207,8 @@ class ClaimEngine:
                         "unit": "percentage",
                         "verbatim_quote": str(md.get("growth_rate")),
                         "source_url": (md.get("sources") or [""])[0],
-                        "confidence": 75
+                        "confidence": 75,
+                        "extraction_method": "heuristic_fallback"
                     })
             return fallback_claims
 
@@ -275,21 +310,31 @@ class ClaimEngine:
                 if support_status == "UNSUBSTANTIATED":
                     conf = max(0, conf - 30)
 
-            # Step 7: Contradiction detection across numerical values and claims (Dimension-Aware)
+            # Step 7: Contradiction detection across numerical values and claims (Scope, Time, Geography, Currency aware)
             v1, dim1 = normalize_numeric_value(value, unit, claim_type)
-            if v1 is not None and v1 > 0:
+            time1, geo1 = extract_claim_scope(c_data)
+            if v1 is not None and abs(v1) > 0:
                 for prev_c in persisted_claims:
                     if prev_c.get("claim_type") == claim_type:
                         v2, dim2 = normalize_numeric_value(prev_c.get("value"), prev_c.get("unit"), prev_c.get("claim_type"))
-                        if v2 is not None and v2 > 0:
+                        time2, geo2 = extract_claim_scope(prev_c)
+                        if v2 is not None and abs(v2) > 0:
+                            # Skip false contradictions if scopes, time periods or geographies explicitly differ
+                            if time1 and time2 and time1 != time2:
+                                continue
+                            if geo1 and geo2 and geo1 != geo2:
+                                continue
+
                             if dim1 == dim2 or dim1 == "other" or dim2 == "other":
-                                diff_ratio = abs(v1 - v2) / max(v1, v2)
-                                if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
-                                    support_status = "CONTRADICTION"
-                                    logger.warning(
-                                        f"Contradiction detected for {claim_type} [{dim1}]: "
-                                        f"{v1} vs {v2} (variance {diff_ratio:.2%})"
-                                    )
+                                max_v = max(abs(v1), abs(v2))
+                                if max_v > 0:
+                                    diff_ratio = abs(v1 - v2) / max_v
+                                    if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
+                                        support_status = "CONTRADICTION"
+                                        logger.warning(
+                                            f"Contradiction detected for {claim_type} [{dim1}]: "
+                                            f"{v1} vs {v2} (variance {diff_ratio:.2%})"
+                                        )
 
             # Count distinct independent domains (Phase 10.3)
             distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)
@@ -308,6 +353,8 @@ class ClaimEngine:
                 verif_status = "UNVERIFIED"
                 agreement_ratio = "0/1"
 
+            extraction_method = c_data.get("extraction_method", "llm_grounded")
+
             claim_record_dict = {
                 "claim_text": claim_text,
                 "claim_type": claim_type,
@@ -318,6 +365,7 @@ class ClaimEngine:
                 "quote_start_idx": quote_start,
                 "quote_end_idx": quote_end,
                 "chunk_text": extracted_chunk,
+                "extraction_method": extraction_method,
                 "support_status": support_status,
                 "verification_status": verif_status,
                 "agreement_ratio": agreement_ratio,
@@ -339,7 +387,7 @@ class ClaimEngine:
                         chunk_text=extracted_chunk,
                         quote_start_idx=quote_start,
                         quote_end_idx=quote_end,
-                        extraction_method="llm_grounded",
+                        extraction_method=extraction_method,
                         verification_status=verif_status,
                         agreement_ratio=agreement_ratio
                     )
