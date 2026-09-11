@@ -46,6 +46,7 @@ class Evidence(Base):
     freshness_score = Column(Integer, default=50, nullable=False) # 0 - 100
     source_type = Column(String, default="webpage", nullable=False) # official, marketplace, article, financial
     raw_snippet = Column(Text, nullable=True)
+    full_text = Column(Text, nullable=True)
 
     try:
         job = relationship("ResearchJob", back_populates="evidence")
@@ -74,6 +75,9 @@ class Claim(Base):
     verification_status = Column(String, default="UNVERIFIED", nullable=False) # CORROBORATED, DISPUTED, SINGLE_SOURCE, UNVERIFIED
     agreement_ratio = Column(String, default="1/1", nullable=False) # e.g. "2/3"
     verbatim_quote = Column(Text, nullable=True)
+    chunk_text = Column(Text, nullable=True)
+    quote_start_idx = Column(Integer, nullable=True)
+    quote_end_idx = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
     try:

@@ -187,18 +187,29 @@ class SSRFProtector:
                     if cls.is_ip_blocked(resolved_ip):
                         raise SSRFSecurityError(f"DNS TOCTOU check failed: '{hostname}' resolved to restricted IP '{resolved_ip}'")
 
-                    # Construct pinned URL replacing hostname with validated IP literal
-                    port_part = f":{parsed.port}" if parsed.port else ""
-                    pinned_netloc = f"{resolved_ip}{port_part}"
-                    pinned_url = urllib.parse.urlunsplit((parsed.scheme, pinned_netloc, parsed.path, parsed.query, parsed.fragment))
-
-                    response = await client.get(
-                        pinned_url,
-                        headers={
+                    # HTTPS-safe connection handling:
+                    # For HTTPS, sending request directly to IP breaks SNI TLS certificate verification.
+                    # For HTTP, host replacement is valid. For HTTPS, we fetch the validated URL with SNI intact,
+                    # while verifying the resolved IP immediately prior.
+                    if parsed.scheme == "https":
+                        target_fetch_url = validated_url
+                        req_headers = {
+                            "User-Agent": "MarketAI-Intelligence-Harvester/2.0 (+https://marketai.app/bot)",
+                            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+                        }
+                    else:
+                        port_part = f":{parsed.port}" if parsed.port else ""
+                        pinned_netloc = f"{resolved_ip}{port_part}"
+                        target_fetch_url = urllib.parse.urlunsplit((parsed.scheme, pinned_netloc, parsed.path, parsed.query, parsed.fragment))
+                        req_headers = {
                             "Host": hostname,
                             "User-Agent": "MarketAI-Intelligence-Harvester/2.0 (+https://marketai.app/bot)",
                             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
                         }
+
+                    response = await client.get(
+                        target_fetch_url,
+                        headers=req_headers
                     )
                 except httpx.RequestError as exc:
                     raise ConnectionError(f"HTTP request error fetching '{current_url}': {exc}")

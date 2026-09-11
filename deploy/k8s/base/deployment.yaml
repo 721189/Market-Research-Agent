@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-api
+  labels:
+    app: marketai-api
+    tier: backend-api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: marketai-api
+  template:
+    metadata:
+      labels:
+        app: marketai-api
+        tier: backend-api
+    spec:
+      containers:
+      - name: api
+        image: ghcr.io/google/marketai/marketai-backend:latest
+        command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-worker
+  labels:
+    app: marketai-worker
+    tier: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: marketai-worker
+  template:
+    metadata:
+      labels:
+        app: marketai-worker
+        tier: worker
+    spec:
+      containers:
+      - name: worker
+        image: ghcr.io/google/marketai/marketai-backend:latest
+        command: ["celery", "-A", "backend.app.workers.celery_app", "worker", "-l", "info", "-Q", "research.deep,research.quick,analysis,reports"]
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"

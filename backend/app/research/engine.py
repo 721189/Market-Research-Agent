@@ -105,7 +105,7 @@ class ResearchEngine:
 
         # Stage 1: Planning
         emit_event("planning", 10, "Formulating targeted research hypotheses and questions via LLM Gateway")
-        plan = await generate_research_plan(product_idea)
+        plan = await generate_research_plan(product_idea, mode)
         check_cancellation("post-planning")
 
         # Stage 2: Parallel research (real LLM extraction, no synthetic fake defaults)
