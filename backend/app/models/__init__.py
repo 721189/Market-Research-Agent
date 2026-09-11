@@ -4,7 +4,7 @@ from backend.app.models.organization import Organization, OrganizationMember, Ap
 from backend.app.models.research import ResearchJob, ResearchRun, ResearchEvent
 from backend.app.models.evidence import Evidence, Claim, claim_sources
 from backend.app.models.report import Report, Artifact
-from backend.app.models.billing import UsageEvent, Subscription, BillingEvent
+from backend.app.models.billing import UsageEvent, LLMCall, ResearchUsage, Subscription, BillingEvent
 from backend.app.models.audit import AuditEvent
 from backend.app.models.marketplace import ResearchTemplate, ScheduledResearch, MarketAlert
 
@@ -23,6 +23,8 @@ __all__ = [
     "Report",
     "Artifact",
     "UsageEvent",
+    "LLMCall",
+    "ResearchUsage",
     "Subscription",
     "BillingEvent",
     "AuditEvent",
