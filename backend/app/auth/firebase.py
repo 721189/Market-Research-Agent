@@ -56,6 +56,14 @@ class GoogleCertificateCache:
 
 cert_cache = GoogleCertificateCache()
 
+def get_firebase_public_keys(force_refresh: bool = False) -> Dict[str, str]:
+    """Helper for retrieving the cached Google public certs dict."""
+    return cert_cache.get_certificates(force_refresh=force_refresh)
+
+def verify_firebase_token(token: str) -> Dict[str, Any]:
+    """Alias for verify_token for Firebase token validation."""
+    return verify_token(token)
+
 def verify_token(token: str) -> Dict[str, Any]:
     """
     Cryptographically verifies a Firebase ID token (RS256 against Google public certs)
@@ -93,10 +101,10 @@ def verify_token(token: str) -> Dict[str, Any]:
         if not kid:
             raise ValueError("Firebase RS256 token missing 'kid' in header")
 
-        certs = cert_cache.get_certificates()
+        certs = get_firebase_public_keys()
         if kid not in certs:
             # Force cache refresh once in case of Google key rotation
-            certs = cert_cache.get_certificates(force_refresh=True)
+            certs = get_firebase_public_keys(force_refresh=True)
 
         cert_pem = certs.get(kid)
         if not cert_pem:

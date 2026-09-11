@@ -61,6 +61,37 @@ DATE_META_PATTERNS = [
 
 class EvidenceCollector:
     @staticmethod
+    def is_safe_public_url(url: str) -> bool:
+        """
+        Validates whether a URL target points to a safe public HTTP/HTTPS endpoint.
+        Rejects loopback, private IPv4/IPv6, cloud metadata, and dangerous schemes.
+        """
+        try:
+            is_valid, _, _ = ssrf_protector.validate_url(url)
+            return is_valid
+        except Exception:
+            return False
+
+    @staticmethod
+    def sanitize_text_content(text: str, max_length: int = 500 * 1024) -> str:
+        """
+        Sanitizes text content against HTML injections, malicious scripts,
+        event handlers, javascript pseudo-protocols, and caps max length.
+        """
+        if not text:
+            return ""
+        if len(text) > max_length:
+            text = text[:max_length]
+        # Remove dangerous HTML and script/style/svg blocks
+        cleaned = re.sub(r'<(script|style|svg|iframe|embed|object)[^>]*>.*?</\1>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'<[^>]+>', ' ', cleaned)
+        cleaned = re.sub(r'javascript:', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'on\w+\s*=', '', cleaned, flags=re.IGNORECASE)
+        # Collapse excessive whitespace
+        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
+        return cleaned.strip()
+
+    @staticmethod
     def canonicalize_url(raw_url: str) -> Optional[str]:
         """
         Cleans and canonicalizes a URL:

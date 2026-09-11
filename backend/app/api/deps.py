@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from backend.app.db.session import get_db
 from backend.app.auth.firebase import verify_token
-from backend.app.auth.rbac import has_permission
+from backend.app.auth.rbac import has_permission, ROLE_PERMISSIONS
 from backend.app.models.user import User
 from backend.app.models.organization import Organization, OrganizationMember
 from backend.app.services.security import security_service
@@ -11,14 +11,22 @@ from backend.app.services.entitlement import entitlement_service
 from backend.app.config import settings
 
 class AuthContext:
-    def __init__(self, user: User, organization: Organization, role: str, auth_method: str = "jwt"):
+    def __init__(self, user: User, organization: Organization, role: str, auth_method: str = "jwt", permissions: Optional[Any] = None):
         self.user = user
         self.organization = organization
         self.role = role
         self.auth_method = auth_method
+        self.permissions = permissions if permissions is not None else ROLE_PERMISSIONS.get(role, set())
+
+    def has_permission(self, permission: str) -> bool:
+        if getattr(self.user, "is_superuser", False):
+            return True
+        if self.permissions and (permission in self.permissions or "*" in self.permissions):
+            return True
+        return has_permission(self.role, permission)
 
     def require_permission(self, permission: str):
-        if not has_permission(self.role, permission):
+        if not self.has_permission(permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission denied: '{permission}' required"
