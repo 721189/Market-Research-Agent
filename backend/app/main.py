@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from backend.app.config import settings
 from backend.app.db.session import engine, Base, wait_for_db
 from backend.app.services.storage import storage_service
-from backend.app.api.routes import health, research, reports, usage, billing
+from backend.app.api.routes import health, research, reports, usage, billing, marketplace, apikeys
 from backend.app.telemetry.logging import configure_centralized_logging, log_request_id, log_trace_id, log_span_id
 from backend.app.telemetry.tracing import tracer
 from backend.app.telemetry.metrics import (
@@ -195,3 +195,5 @@ app.include_router(research.router)
 app.include_router(reports.router)
 app.include_router(usage.router)
 app.include_router(billing.router)
+app.include_router(marketplace.router)
+app.include_router(apikeys.router)
