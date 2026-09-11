@@ -280,4 +280,22 @@ class CostService:
 
         return None
 
+    @classmethod
+    def finalize_and_persist(
+        cls,
+        db: Optional[Session],
+        org_id: str,
+        job_id: str,
+        default_model: str = "gemini-1.5-flash",
+        user_id: Optional[str] = None
+    ) -> Optional[UsageEvent]:
+        """Alias for finalize_job_usage for backward compatibility."""
+        return cls.finalize_job_usage(
+            db=db,
+            org_id=org_id,
+            job_id=job_id,
+            default_model=default_model,
+            user_id=user_id
+        )
+
 cost_service = CostService()
