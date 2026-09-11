@@ -7,6 +7,14 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   firebaseRulesPlugin.configs["flat/recommended"],
+  {
+    files: ["**/*.ts", "**/*.tsx"],
+    languageOptions: {
+      parserOptions: {
+        project: "./tsconfig.json",
+      },
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
