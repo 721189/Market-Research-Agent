@@ -48,6 +48,7 @@ class StorageService:
                 self.client.head_bucket(Bucket=self.bucket)
                 logger.info(f"S3 bucket '{self.bucket}' verified successfully.")
                 self.use_fallback = False
+                self.apply_bucket_lifecycle()
                 return True
             except ClientError as ce:
                 error_code = ce.response.get("Error", {}).get("Code")
@@ -56,6 +57,7 @@ class StorageService:
                         self.client.create_bucket(Bucket=self.bucket)
                         logger.info(f"Created S3 bucket '{self.bucket}'.")
                         self.use_fallback = False
+                        self.apply_bucket_lifecycle()
                         return True
                     except Exception as create_err:
                         logger.warning(f"Could not create bucket: {create_err}")
@@ -70,6 +72,32 @@ class StorageService:
         logger.warning(f"S3 service unreachable after {max_retries} attempts. Enabling local fallback storage at {self.local_fallback_dir}")
         self.use_fallback = True
         return False
+
+    def apply_bucket_lifecycle(self):
+        """Applies a 90-day retention policy to all tenant-scoped report prefixes."""
+        if self.use_fallback or not self.client:
+            return
+        
+        lifecycle_policy = {
+            "Rules": [
+                {
+                    "ID": "Enforce Tenant Evidence and Report Retention (90 Days)",
+                    "Prefix": "organizations/",
+                    "Status": "Enabled",
+                    "Expiration": {
+                        "Days": 90
+                    }
+                }
+            ]
+        }
+        try:
+            self.client.put_bucket_lifecycle_configuration(
+                Bucket=self.bucket,
+                LifecycleConfiguration=lifecycle_policy
+            )
+            logger.info(f"Bucket lifecycle policy (90 day retention) applied to '{self.bucket}'.")
+        except Exception as e:
+            logger.warning(f"Failed to set bucket lifecycle policy: {e}")
 
     def upload_bytes(
         self,

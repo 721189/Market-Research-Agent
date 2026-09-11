@@ -70,7 +70,7 @@ class ClaimEngine:
             context_snippets.append(f"Pricing Landscape: Entry={pl.get('entry_tier_usd')}, Mid={pl.get('mid_tier_usd')}, Enterprise={pl.get('enterprise_tier_usd')}")
 
         full_context = "\n\n".join(context_snippets)
-        prompt = CLAIM_EXTRACTION_PROMPT.format(context=full_context[:6000])
+        prompt = CLAIM_EXTRACTION_PROMPT.format(context=full_context[:80000])
 
         try:
             resp = await llm_gateway.generate(
@@ -176,11 +176,26 @@ class ClaimEngine:
                         matched_evidence_set.add(evidence_by_domain[domain])
 
             matched_evidence = list(matched_evidence_set)
-            num_sources = len(matched_evidence)
-            if num_sources >= 2:
+            
+            # Verify quote containment (Phase 10.2)
+            if verbatim_quote:
+                clean_quote = " ".join(verbatim_quote.lower().split())
+                for ev in matched_evidence:
+                    clean_snippet = " ".join((ev.raw_snippet or "").lower().split())
+                    if clean_quote in clean_snippet:
+                        break
+                else:
+                    # Quote not found in any linked evidence snippet
+                    conf = max(0, conf - 30)
+
+            # Count distinct independent domains (Phase 10.3)
+            distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)
+            num_domains = len(distinct_domains)
+            
+            if num_domains >= 2:
                 verif_status = "CORROBORATED"
-                agreement_ratio = f"{num_sources}/{num_sources}"
-            elif num_sources == 1:
+                agreement_ratio = f"{num_domains}/{num_domains}"
+            elif num_domains == 1:
                 verif_status = "SINGLE_SOURCE"
                 agreement_ratio = "1/1"
             else:

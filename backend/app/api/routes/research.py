@@ -151,41 +151,41 @@ def cancel_research_job(
     if job.org_id != auth.organization.id and not auth.user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
+    if job.status == "CANCELLING":
+        return {"message": "Job is already cancelling", "status": job.status}
+
     if job.status in ("COMPLETED", "FAILED", "CANCELLED"):
         return {"message": f"Job already in terminal state: {job.status}", "status": job.status}
 
-    # 1. Update Database Status
-    job.status = "CANCELLED"
-    job.cancelled_at = datetime.datetime.utcnow()
+    # 1. Update Database Status to CANCELLING
+    job.status = "CANCELLING"
 
-    # 2. Release Quota reservation
-    entitlement_service.release_quota(db, task_id, reason="cancelled_by_user")
-
-    # 3. Emit Cancellation Event
+    # 2. Emit Cancellation Requested Event
     cancel_event = ResearchEvent(
         job_id=task_id,
-        stage="cancelled",
+        stage="cancelling",
         progress=job.progress,
-        message="Research job cancelled by user request",
+        message="Research job cancellation requested",
         level="WARNING"
     )
     db.add(cancel_event)
     db.commit()
 
-    # 4. Set Redis cancellation flag (TTL 1 hour) for low-latency worker notification
+    # 3. Set Redis cancellation flag (TTL 1 hour) for low-latency worker notification
     try:
         if rate_limiter.redis:
             rate_limiter.redis.setex(f"job_cancel:{task_id}", 3600, "1")
     except Exception as e:
         logger.warning(f"Could not set Redis cancellation flag: {e}")
-
-    # 5. Revoke Celery task
+        
+    # 4. Revoke Celery task (but gracefully)
     try:
-        celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+        # Avoid terminate=True so workers can gracefully handle the CANCELLING state
+        celery_app.control.revoke(task_id, terminate=False)
     except Exception as e:
         logger.warning(f"Celery task revocation note: {e}")
 
-    return {"message": "Job cancellation initiated successfully", "status": "CANCELLED"}
+    return {"message": "Job cancellation initiated successfully", "status": "CANCELLING"}
 
 @router.get("/{task_id}/events")
 async def get_research_events(

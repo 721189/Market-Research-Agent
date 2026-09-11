@@ -71,9 +71,6 @@ def execute_research_job(self, job_id: str):
         run_record.completed_at = datetime.datetime.utcnow()
         db.commit()
 
-        # Commit quota reservation to COMMITTED
-        entitlement_service.commit_quota(db, job.id)
-
         # Finalize and persist actual metered usage and exact USD cost
         cost_service.finalize_and_persist(
             db=db,

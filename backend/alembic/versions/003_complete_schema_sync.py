@@ -26,33 +26,19 @@ def upgrade() -> None:
 
     # 3. Additional columns on evidence
     op.add_column('evidence', sa.Column('canonical_url', sa.String(), nullable=True))
-    op.add_column('evidence', sa.Column('published_at', sa.DateTime(), nullable=True))
     op.add_column('evidence', sa.Column('etag', sa.String(), nullable=True))
     op.add_column('evidence', sa.Column('status_code', sa.Integer(), nullable=False, server_default='200'))
     op.add_column('evidence', sa.Column('content_type', sa.String(), nullable=False, server_default='text/html'))
     op.add_column('evidence', sa.Column('raw_size', sa.Integer(), nullable=False, server_default='0'))
     op.add_column('evidence', sa.Column('snapshot_object_key', sa.String(), nullable=True))
-    op.add_column('evidence', sa.Column('source_type', sa.String(), nullable=False, server_default='webpage'))
     op.add_column('evidence', sa.Column('raw_snippet', sa.Text(), nullable=True))
 
     # 4. Additional columns on claims
     op.add_column('claims', sa.Column('claim_type', sa.String(), nullable=False, server_default='market_insight'))
-    op.add_column('claims', sa.Column('value', sa.String(), nullable=True))
-    op.add_column('claims', sa.Column('unit', sa.String(), nullable=True))
-    op.add_column('claims', sa.Column('confidence', sa.Integer(), nullable=False, server_default='70'))
     op.add_column('claims', sa.Column('extraction_method', sa.String(), nullable=False, server_default='llm_grounded'))
     op.add_column('claims', sa.Column('verification_status', sa.String(), nullable=False, server_default='UNVERIFIED'))
     op.add_column('claims', sa.Column('agreement_ratio', sa.String(), nullable=False, server_default='1/1'))
     op.add_column('claims', sa.Column('verbatim_quote', sa.Text(), nullable=True))
-
-    # 5. claim_sources association table
-    op.create_table(
-        'claim_sources',
-        sa.Column('claim_id', sa.String(), sa.ForeignKey('claims.id', ondelete='CASCADE'), primary_key=True),
-        sa.Column('evidence_id', sa.String(), sa.ForeignKey('evidence.id', ondelete='CASCADE'), primary_key=True)
-    )
-    op.create_index('idx_claim_sources_claim', 'claim_sources', ['claim_id'])
-    op.create_index('idx_claim_sources_evidence', 'claim_sources', ['evidence_id'])
 
     # 6. llm_calls table (exact match to LLMCall ORM)
     op.create_table(
@@ -144,23 +130,17 @@ def downgrade() -> None:
     op.drop_table('research_templates')
     op.drop_table('research_usages')
     op.drop_table('llm_calls')
-    op.drop_table('claim_sources')
     op.drop_column('claims', 'verbatim_quote')
     op.drop_column('claims', 'agreement_ratio')
     op.drop_column('claims', 'verification_status')
     op.drop_column('claims', 'extraction_method')
-    op.drop_column('claims', 'confidence')
-    op.drop_column('claims', 'unit')
-    op.drop_column('claims', 'value')
     op.drop_column('claims', 'claim_type')
     op.drop_column('evidence', 'raw_snippet')
-    op.drop_column('evidence', 'source_type')
     op.drop_column('evidence', 'snapshot_object_key')
     op.drop_column('evidence', 'raw_size')
     op.drop_column('evidence', 'content_type')
     op.drop_column('evidence', 'status_code')
     op.drop_column('evidence', 'etag')
-    op.drop_column('evidence', 'published_at')
     op.drop_column('evidence', 'canonical_url')
     op.drop_column('api_keys', 'last_used_at')
     op.drop_column('api_keys', 'is_revoked')

@@ -161,7 +161,11 @@ def get_auth_context(
                 detail=f"Organization workspace is currently {org.status}"
             )
 
-        return AuthContext(user=user, organization=org, role=api_key_obj.role, auth_method="api_key")
+        perms_set = None
+        if getattr(api_key_obj, "permissions", None):
+            perms_set = set(p.strip() for p in api_key_obj.permissions.split(",") if p.strip())
+
+        return AuthContext(user=user, organization=org, role=api_key_obj.role, auth_method="api_key", permissions=perms_set)
 
     # 2. JWT / User Session Authentication
     user = get_current_user(request, authorization, db)

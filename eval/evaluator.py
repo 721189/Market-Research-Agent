@@ -11,11 +11,8 @@ class EvalMetrics:
     competitor_recall: float
     citation_accuracy: float
     citation_entailment: float
-    pricing_accuracy: float
-    market_number_accuracy: float
     hallucination_rate: float
     unsupported_claim_rate: float
-    contradiction_detection_rate: float
     financial_arithmetic_accuracy: float
 
 class BenchmarkEvaluator:
@@ -162,11 +159,8 @@ class BenchmarkEvaluator:
             competitor_recall=rec,
             citation_accuracy=cit_acc,
             citation_entailment=cit_ent,
-            pricing_accuracy=94.5,
-            market_number_accuracy=92.0,
             hallucination_rate=hall,
             unsupported_claim_rate=unsupp,
-            contradiction_detection_rate=96.0,
             financial_arithmetic_accuracy=fin_acc
         )
 

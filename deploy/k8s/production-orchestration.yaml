@@ -74,13 +74,13 @@ spec:
             memory: "2Gi"
         livenessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /health/live
             port: 8000
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /health/ready
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
@@ -170,6 +170,126 @@ spec:
     name: marketai-research-workers
   minReplicas: 4
   maxReplicas: 30
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 65
+
+---
+# 6. Analysis Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-analysis-workers
+  namespace: marketai-production
+  labels:
+    app: marketai-analysis-worker
+    tier: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: marketai-analysis-worker
+  template:
+    metadata:
+      labels:
+        app: marketai-analysis-worker
+        tier: worker
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/marketai-prod/worker:v2.0.0
+        command: ["celery", "-A", "backend.app.workers.celery_app", "worker", "-Q", "analysis", "--autoscale=8,2", "-l", "INFO"]
+        resources:
+          requests:
+            cpu: "1000m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
+        envFrom:
+        - secretRef:
+            name: marketai-secrets
+        - configMapRef:
+            name: marketai-config
+
+---
+# 7. Analysis Worker HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: marketai-analysis-worker-hpa
+  namespace: marketai-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: marketai-analysis-workers
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 65
+
+---
+# 8. Report Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketai-report-workers
+  namespace: marketai-production
+  labels:
+    app: marketai-report-worker
+    tier: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: marketai-report-worker
+  template:
+    metadata:
+      labels:
+        app: marketai-report-worker
+        tier: worker
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/marketai-prod/worker:v2.0.0
+        command: ["celery", "-A", "backend.app.workers.celery_app", "worker", "-Q", "reports", "--autoscale=4,1", "-l", "INFO"]
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        envFrom:
+        - secretRef:
+            name: marketai-secrets
+        - configMapRef:
+            name: marketai-config
+
+---
+# 9. Report Worker HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: marketai-report-worker-hpa
+  namespace: marketai-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: marketai-report-workers
+  minReplicas: 1
+  maxReplicas: 10
   metrics:
   - type: Resource
     resource:

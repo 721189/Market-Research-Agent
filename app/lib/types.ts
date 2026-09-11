@@ -23,42 +23,39 @@ export interface StructuredClaim {
 }
 
 export interface FinancialAnalysis {
-  product_name?: string;
-  entry_tier_usd?: number;
-  mid_tier_usd?: number;
-  enterprise_tier_usd?: number;
-  estimated_cogs?: number;
-  suggested_retail_price?: number;
-  gross_margin_pct?: number;
-  breakeven_units_monthly?: number;
-  sensitivity_scenarios?: Record<string, unknown>;
-  key_competitor_prices?: string[];
+  estimated_cogs: number;
+  suggested_retail_price: number;
+  projected_margin_percentage: number;
+  markup_percentage: number;
+  break_even_units: number;
+  pricing_basis: string;
+  assumption_type: string;
+  scenarios: Record<string, unknown>;
 }
 
 export interface ConfidenceScore {
   overall_score: number;
-  source_reliability: number;
-  evidence_coverage: number;
-  consistency: number;
-  high_confidence_insights: string[];
-  low_confidence_insights: string[];
-  summary: string;
+  dimension_scores: Record<string, number>;
+  reasoning: string[];
 }
 
 export interface ResearchResult {
   product_idea: string;
   mode: string;
-  stage?: string;
-  evidence_sources?: EvidenceRecord[];
-  structured_claims?: StructuredClaim[];
-  competitors?: Record<string, unknown>[];
-  market_dynamics?: Record<string, unknown>;
-  pricing_landscape?: Record<string, unknown>;
-  customer_profile?: Record<string, unknown>;
-  financials: FinancialAnalysis | null;
-  confidence: ConfidenceScore | null;
-  launch_brief?: string;
-  report?: Record<string, unknown>;
+  pipeline_state: string;
+  executive_summary: string;
+  strategic_recommendations: string[];
+  swot_analysis: Record<string, unknown>;
+  go_to_market: Record<string, unknown>;
+  market_dynamics: Record<string, unknown>;
+  pricing_landscape: Record<string, unknown>;
+  customer_profile: Record<string, unknown>;
+  competitors: Record<string, unknown>[];
+  claims: StructuredClaim[];
+  cross_source_agreement: Record<string, unknown>;
+  financials: FinancialAnalysis;
+  confidence: ConfidenceScore;
+  evidence_sources: EvidenceRecord[];
 }
 
 export interface ResearchDetailResponse {

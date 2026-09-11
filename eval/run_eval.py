@@ -49,27 +49,8 @@ async def run_benchmark_eval_async():
             })
         except Exception as e:
             logger.error(f"Error running research engine for query '{query}': {e}")
-            # Fallback to structured dataset item if offline or API key absent
-            test_outputs.append({
-                "query": query,
-                "competitors": [{"name": c, "features": ["core"]} for c in item.get("expected_competitors", [])],
-                "claims": [
-                    {
-                        "claim_text": f"Competitor {c} operates in market",
-                        "sources": [f"https://{c.lower().replace(' ', '')}.com"],
-                        "verbatim_quote": f"{c} provides software solutions."
-                    }
-                    for c in item.get("expected_competitors", [])
-                ],
-                "evidence_sources": [
-                    {"domain": f"{c.lower().replace(' ', '')}.com", "authority_score": 85} for c in item.get("expected_competitors", [])
-                ],
-                "financials": {
-                    "scenarios": {
-                        "base_case": {"gross_margin_percentage": 70.0}
-                    }
-                }
-            })
+            # Do not fallback to ground truth. If engine fails, the test fails.
+            raise RuntimeError(f"Engine failed for query '{query}': {e}")
 
     logger.info(f"Evaluated {len(test_outputs)} actual product execution benchmark cases.")
     metrics = benchmark_evaluator.run_full_benchmark(test_outputs)

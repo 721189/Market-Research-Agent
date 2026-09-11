@@ -240,19 +240,29 @@ class EntitlementService:
             return None
 
     @classmethod
-    def commit_quota(cls, db: Session, job_id: str, units: int = 1, billing_rule: str = "standard") -> None:
-        """Finalizes a quota reservation to COMMITTED status upon successful research completion."""
+    def finalize_usage(cls, db: Session, job_id: str, units: int = 1, billing_rule: str = "standard") -> None:
+        """Finalizes a quota reservation to COMMITTED status (idempotent)."""
         try:
             usage = db.query(ResearchUsage).filter(ResearchUsage.job_id == job_id).first()
             if usage:
-                usage.status = "COMMITTED"
-                usage.units_consumed = units
-                usage.billing_rule = billing_rule
-                usage.finalized_at = datetime.datetime.utcnow()
-                db.commit()
+                if usage.status == "COMMITTED":
+                    logger.info(f"Quota for job {job_id} already committed. Skipping.")
+                    return
+                if usage.status == "RESERVED":
+                    usage.status = "COMMITTED"
+                    usage.units_consumed = units
+                    usage.billing_rule = billing_rule
+                    usage.finalized_at = datetime.datetime.utcnow()
+                    db.commit()
+                    logger.info(f"Committed quota for job {job_id}")
         except Exception as e:
             logger.error(f"Failed to commit quota for job {job_id}: {e}")
             db.rollback()
+
+    @classmethod
+    def commit_quota(cls, db: Session, job_id: str, units: int = 1, billing_rule: str = "standard") -> None:
+        # Alias for backward compatibility during refactor
+        cls.finalize_usage(db, job_id, units, billing_rule)
 
     @classmethod
     def release_quota(cls, db: Session, job_id: str, reason: str = "waived_on_provider_error") -> None:

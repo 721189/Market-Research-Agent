@@ -16,6 +16,14 @@ from backend.app.services.storage import storage_service
 
 logger = get_task_logger(__name__)
 
+import html
+
+def safe_html(text: str) -> str:
+    """Escapes HTML entities to prevent ReportLab markup injection."""
+    if not isinstance(text, str):
+        return str(text)
+    return html.escape(text).replace("\n", "<br/>")
+
 def build_pdf_document(product_idea: str, result: dict) -> bytes:
     """
     Renders an executive-grade PDF report using ReportLab.
@@ -60,14 +68,14 @@ def build_pdf_document(product_idea: str, result: dict) -> bytes:
 
     # Title
     story.append(Paragraph("MarketAI Executive Intelligence Brief", title_style))
-    story.append(Paragraph(f"<b>Target Subject:</b> {product_idea}", body_style))
+    story.append(Paragraph(f"<b>Target Subject:</b> {safe_html(product_idea)}", body_style))
     story.append(Paragraph(f"<b>Generated:</b> {datetime.datetime.utcnow().strftime('%B %d, %Y - %H:%M UTC')}", body_style))
     story.append(Spacer(1, 16))
 
     # Executive Summary
     story.append(Paragraph("Executive Summary", h2_style))
     exec_sum = result.get("executive_summary", "No executive summary available.")
-    story.append(Paragraph(exec_sum, body_style))
+    story.append(Paragraph(safe_html(exec_sum), body_style))
     story.append(Spacer(1, 14))
 
     # Financials Table
@@ -79,7 +87,8 @@ def build_pdf_document(product_idea: str, result: dict) -> bytes:
         ["Estimated COGS", f"${fin.get('estimated_cogs', 0):.2f}"],
         ["Gross Margin", f"{fin.get('projected_margin_percentage', 0)}%"],
         ["Markup", f"{fin.get('markup_percentage', 0)}%"],
-        ["Break-Even Monthly Units", str(fin.get('break_even_units', 0))]
+        ["Break-Even Monthly Units", str(fin.get('break_even_units', 0))],
+        ["Assumption Type", safe_html(fin.get('assumption_type', 'N/A'))]
     ]
     t = Table(fin_data, colWidths=[200, 200])
     t.setStyle(TableStyle([
@@ -100,9 +109,9 @@ def build_pdf_document(product_idea: str, result: dict) -> bytes:
         comp_data = [["Competitor", "Positioning", "Pricing"]]
         for c in competitors[:5]:
             comp_data.append([
-                c.get("name", "N/A"),
-                c.get("positioning", "N/A"),
-                c.get("pricing", "N/A")
+                safe_html(c.get("name", "N/A")),
+                safe_html(c.get("positioning", "N/A")),
+                safe_html(str(c.get("pricing", "N/A")))
             ])
         ct = Table(comp_data, colWidths=[150, 150, 150])
         ct.setStyle(TableStyle([
@@ -115,9 +124,20 @@ def build_pdf_document(product_idea: str, result: dict) -> bytes:
         story.append(ct)
     story.append(Spacer(1, 14))
 
+    # Recommendations
+    recs = result.get("strategic_recommendations", [])
+    if recs:
+        story.append(Paragraph("Strategic Recommendations", h2_style))
+        for r in recs:
+            story.append(Paragraph(f"• {safe_html(r)}", body_style))
+        story.append(Spacer(1, 14))
+
     # Confidence Metric
     conf = result.get("confidence", {})
     story.append(Paragraph(f"<b>Overall Research Confidence:</b> {conf.get('overall_score', 'N/A')}/100", body_style))
+    reasons = conf.get("reasoning", [])
+    for r in reasons:
+        story.append(Paragraph(f"- {safe_html(r)}", body_style))
 
     doc.build(story)
     return buffer.getvalue()

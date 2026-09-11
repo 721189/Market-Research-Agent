@@ -348,7 +348,7 @@ function ResultsView({
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-2xl font-bold">
-          {fin.product_name ?? result.product_idea}
+          {fin.pricing_basis ?? result.product_idea}
         </h2>
         {taskId ? (
           <a
@@ -365,10 +365,10 @@ function ResultsView({
         <ConfidencePanel conf={conf} />
       </div>
 
-      {result.launch_brief ? (
+      {result.executive_summary ? (
         <div className="ink-card rounded-xl p-6">
           <h3 className="text-lg font-semibold mb-3 text-accent">📄 Launch Brief</h3>
-          <Markdown text={result.launch_brief} />
+          <Markdown text={result.executive_summary} />
         </div>
       ) : null}
     </section>

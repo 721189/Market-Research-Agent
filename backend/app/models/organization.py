@@ -49,7 +49,8 @@ class ApiKey(Base):
     key_hash = Column(String, unique=True, index=True, nullable=False)
     key_prefix = Column(String, nullable=False) # e.g. "mk_live_a1b2..."
     name = Column(String, nullable=False)
-    role = Column(String, default="member", nullable=False) # admin, member, viewer
+    role = Column(String, default="member", nullable=False) # Base RBAC role if permissions not set
+    permissions = Column(String, nullable=True) # Comma-separated list of exact permissions like 'research:view,research:create'
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     is_revoked = Column(Boolean, default=False, nullable=False)

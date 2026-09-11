@@ -15,7 +15,17 @@ from backend.app.providers.base import ExtractionResultState
 from backend.app.services.cost import cost_service
 from backend.app.services.entitlement import entitlement_service
 
+from backend.app.research.engine import JobCancelledException
+
 logger = get_task_logger(__name__)
+
+# Non-retryable permanent failure types
+FATAL_EXCEPTIONS = (
+    JobCancelledException,
+    ValueError,
+    KeyError,
+    PermissionError,
+)
 
 @celery_app.task(bind=True, max_retries=3, acks_late=True)
 def analyze_evidence_task(self, job_id: str):
@@ -59,7 +69,25 @@ def analyze_evidence_task(self, job_id: str):
         except Exception as err:
             logger.warning(f"Failed to emit analysis event for {job_id}: {err}")
 
+    def check_cancellation(checkpoint_name: str):
+        from backend.app.services.rate_limiter import rate_limiter
+        is_cancelled = False
+        try:
+            if rate_limiter.redis and rate_limiter.redis.exists(f"job_cancel:{job_id}"):
+                is_cancelled = True
+        except:
+            pass
+        if not is_cancelled:
+            job_status = db.query(ResearchJob.status).filter(ResearchJob.id == job_id).scalar()
+            if job_status in ("CANCELLED", "CANCELLING"):
+                is_cancelled = True
+        
+        if is_cancelled:
+            emit_event("cancelled", job.progress, f"Analysis halted at checkpoint: {checkpoint_name}", level="WARNING")
+            raise JobCancelledException(f"Job {job_id} cancelled during {checkpoint_name}")
+
     try:
+        check_cancellation("pre_analysis")
         job.status = "ANALYZING"
         db.commit()
 
@@ -134,6 +162,7 @@ def analyze_evidence_task(self, job_id: str):
             )
 
         # Stage 3 & 4: Cross-Source Concordance and Conflict Detection
+        check_cancellation("pre_concordance")
         emit_event("cross_validation", 80, "Evaluating cross-source concordance and scanning for discrepancies")
         agreement_data = agreement_engine.compute_agreement(
             sources=evidence_records,
@@ -143,6 +172,7 @@ def analyze_evidence_task(self, job_id: str):
         )
 
         # Stage 5: Financial Sensitivity Modeling
+        check_cancellation("pre_financial_modeling")
         emit_event("financial_modeling", 84, "Executing multi-scenario unit economics and sensitivity matrix")
         raw_price = pricing.get("mid_tier_usd") or pricing.get("entry_tier_usd")
         if raw_price is not None and isinstance(raw_price, (int, float)) and raw_price > 0:
@@ -168,6 +198,7 @@ def analyze_evidence_task(self, job_id: str):
         )
 
         # Stage 7: Strategic Synthesis
+        check_cancellation("pre_synthesis")
         emit_event("synthesis", 92, "Synthesizing executive brief and management strategy")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -217,6 +248,7 @@ def analyze_evidence_task(self, job_id: str):
                 "markup_percentage": base_fin["markup_percentage"],
                 "break_even_units": base_fin["break_even_units_monthly"],
                 "pricing_basis": pricing_basis,
+                "assumption_type": "benchmark_assumption" if pricing_basis == "standard_benchmark_baseline" else "extracted_market_evidence",
                 "scenarios": financial_scenarios
             },
             "confidence": confidence_result,
@@ -236,6 +268,22 @@ def analyze_evidence_task(self, job_id: str):
         from backend.app.workers.pdf_worker import generate_pdf_report_task
         generate_pdf_report_task.apply_async(args=[job_id], queue="reports")
 
+    except JobCancelledException as e:
+        logger.info(f"Analysis job {job_id} successfully terminated upon cancellation request: {e}")
+        try:
+            job = db.query(ResearchJob).filter(ResearchJob.id == job_id).first()
+            if job:
+                job.status = "CANCELLED"
+                job.cancelled_at = datetime.datetime.utcnow()
+            run = db.query(ResearchRun).filter(ResearchRun.job_id == job_id, ResearchRun.status == "RUNNING").first()
+            if run:
+                run.status = "CANCELLED"
+                run.completed_at = datetime.datetime.utcnow()
+            db.commit()
+            entitlement_service.release_quota(db, job_id, reason="job_cancelled")
+        except Exception as db_err:
+            logger.error(f"Error updating cancellation status for job {job_id}: {db_err}")
+            
     except Exception as e:
         logger.exception(f"Error in analysis worker for job {job_id}: {e}")
         job.status = "FAILED"

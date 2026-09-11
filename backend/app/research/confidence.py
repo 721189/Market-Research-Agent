@@ -28,17 +28,15 @@ class ConfidenceEngine:
         if not sources:
             return {
                 "overall_score": 35,
-                "tier": "INSUFFICIENT",
-                "risk_factors": ["No external verifiable evidence sources were retrieved."],
-                "strengths": [],
-                "breakdown": {
+                "dimension_scores": {
                     "source_reliability": 30.0,
                     "freshness": 40.0,
                     "evidence_coverage": 20.0,
                     "cross_source_agreement": 30.0,
                     "calculation_consistency": 50.0,
                     "domain_diversity": 0.0
-                }
+                },
+                "reasoning": ["No external verifiable evidence sources were retrieved."]
             }
 
         # 1. Source Reliability & Domain Diversification
@@ -152,19 +150,19 @@ class ConfidenceEngine:
         else:
             tier = "INSUFFICIENT"
 
+        reasoning = strengths + risk_factors
+
         return {
             "overall_score": overall,
-            "tier": tier,
-            "risk_factors": risk_factors,
-            "strengths": strengths,
-            "breakdown": {
+            "dimension_scores": {
                 "source_reliability": round(source_reliability, 1),
                 "freshness": round(mean_freshness, 1),
                 "evidence_coverage": round(coverage_score, 1),
                 "cross_source_agreement": round(agreement_score, 1),
                 "calculation_consistency": round(calc_score, 1),
                 "domain_diversity": round(domain_diversity_ratio * 100.0, 1)
-            }
+            },
+            "reasoning": reasoning
         }
 
 confidence_engine = ConfidenceEngine()

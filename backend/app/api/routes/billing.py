@@ -20,7 +20,6 @@ class CheckoutSessionRequest(BaseModel):
     plan: str
     success_url: str
     cancel_url: str
-    price_id: Optional[str] = None
 
 class PortalSessionRequest(BaseModel):
     return_url: str
@@ -81,9 +80,11 @@ def create_checkout_session(
 
         plan_info = PLAN_PRICE_MAP.get(payload.plan, PLAN_PRICE_MAP["starter"])
 
-        line_item = {}
-        if payload.price_id:
-            line_item = {"price": payload.price_id, "quantity": 1}
+        # Map to server-controlled price if we have it in settings, else use dynamic pricing
+        stripe_price_id = getattr(settings, f"STRIPE_PRICE_ID_{payload.plan.upper()}", None)
+        
+        if stripe_price_id:
+            line_item = {"price": stripe_price_id, "quantity": 1}
         else:
             line_item = {
                 "price_data": {

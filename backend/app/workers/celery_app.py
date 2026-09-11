@@ -10,6 +10,7 @@ celery_app = Celery(
         "backend.app.workers.research_worker",
         "backend.app.workers.analysis_worker",
         "backend.app.workers.pdf_worker",
+        "backend.app.workers.scheduler_worker",
     ]
 )
 
@@ -33,4 +34,10 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     task_time_limit=3600, # 1 hour max
     worker_prefetch_multiplier=1, # Fair dispatch
+    beat_schedule={
+        "dispatch-scheduled-research": {
+            "task": "scheduler.dispatch_scheduled_research",
+            "schedule": 60.0, # Every 60 seconds
+        }
+    }
 )

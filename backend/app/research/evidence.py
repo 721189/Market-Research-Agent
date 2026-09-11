@@ -260,6 +260,19 @@ class EvidenceCollector:
             authority = cls.compute_authority(canonical_url)
             freshness = cls.compute_freshness(retrieved_at=now, published_at=published_at)
 
+            # Upload raw evidence to object storage (Phase 9)
+            from backend.app.services.storage import storage_service
+            object_key = f"evidence/{now.strftime('%Y%m%d')}/{content_hash}.html"
+            try:
+                storage_service.upload_bytes(object_key, raw_bytes, content_type="text/html")
+            except Exception as e:
+                logger.warning(f"Failed to upload evidence to storage: {e}")
+                object_key = None
+
+            # Lexical chunking approach (Phase 9) - take first 10,000 characters of normalized text 
+            # to feed into the extraction engine, rather than just 300 characters.
+            normalized_content = cls.normalize_content(content_text)
+            
             domain = urlparse(canonical_url).netloc.lower()
             return {
                 "url": canonical_url,
@@ -271,7 +284,8 @@ class EvidenceCollector:
                 "retrieved_at": now.isoformat(),
                 "authority_score": authority,
                 "freshness_score": freshness,
-                "snippet": cls.normalize_content(content_text)[:300]
+                "snapshot_object_key": object_key,
+                "snippet": normalized_content[:10000]
             }
         except Exception as e:
             logger.warning(f"Error harvesting evidence from {url}: {e}")
