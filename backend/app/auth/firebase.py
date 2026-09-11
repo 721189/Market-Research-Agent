@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import base64
 import logging
 import urllib.request
 from typing import Optional, Dict, Any
@@ -10,6 +11,24 @@ from backend.app.config import settings
 logger = logging.getLogger("marketai.auth.firebase")
 
 GOOGLE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+
+def get_unverified_header_safe(token: str) -> Dict[str, Any]:
+    """Safely decodes JWT header without verifying signature, with pure base64 fallback."""
+    try:
+        if hasattr(jwt, "get_unverified_header"):
+            return jwt.get_unverified_header(token)
+    except Exception:
+        pass
+    try:
+        parts = token.split(".")
+        if len(parts) >= 2:
+            header_segment = parts[0]
+            padding = "=" * (4 - (len(header_segment) % 4))
+            header_json = base64.urlsafe_b64decode(header_segment + padding).decode("utf-8")
+            return json.loads(header_json)
+    except Exception as e:
+        raise ValueError(f"Malformed token header: {e}")
+    raise ValueError("Invalid JWT token format")
 
 class GoogleCertificateCache:
     """
@@ -60,18 +79,19 @@ def get_firebase_public_keys(force_refresh: bool = False) -> Dict[str, str]:
     """Helper for retrieving the cached Google public certs dict."""
     return cert_cache.get_certificates(force_refresh=force_refresh)
 
-def verify_firebase_token(token: str) -> Dict[str, Any]:
+def verify_firebase_token(token: Any) -> Dict[str, Any]:
     """
     Cryptographically verifies a Firebase ID token (must be RS256 signed by Google).
     """
-    if not token or not isinstance(token, str):
+    if token is None:
+        raise ValueError("Authentication token is missing or empty")
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    if not isinstance(token, str) or not token.strip():
         raise ValueError("Authentication token is missing or empty")
 
     token = token.strip()
-    try:
-        header = jwt.get_unverified_header(token)
-    except Exception as e:
-        raise ValueError(f"Malformed token header: {e}")
+    header = get_unverified_header_safe(token)
 
     alg = header.get("alg")
     if alg != "RS256":
@@ -79,7 +99,7 @@ def verify_firebase_token(token: str) -> Dict[str, Any]:
 
     return verify_token(token)
 
-def verify_token(token: str) -> Dict[str, Any]:
+def verify_token(token: Any) -> Dict[str, Any]:
     """
     Cryptographically verifies a Firebase ID token (RS256 against Google public certs)
     or internal service token (HS256 against SECRET_KEY).
@@ -94,16 +114,17 @@ def verify_token(token: str) -> Dict[str, Any]:
     - Subject (sub): non-empty Firebase UID
     - Auth time (auth_time)
     """
-    if not token or not isinstance(token, str):
+    if token is None:
+        raise ValueError("Authentication token is missing or empty")
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    if not isinstance(token, str) or not token.strip():
         raise ValueError("Authentication token is missing or empty")
 
     token = token.strip()
 
     # Step 1: Decode header to inspect algorithm and kid
-    try:
-        unverified_header = jwt.get_unverified_header(token)
-    except JWTError as e:
-        raise ValueError(f"Malformed token header: {str(e)}")
+    unverified_header = get_unverified_header_safe(token)
 
     alg = unverified_header.get("alg")
     kid = unverified_header.get("kid")
