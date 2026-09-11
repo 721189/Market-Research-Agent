@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 
 from backend.app.auth.firebase import verify_firebase_token
+from backend.app.config import settings
 from backend.app.auth.rbac import (
     ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN, ROLE_OWNER,
     PERM_RESEARCH_CREATE, PERM_RESEARCH_VIEW, PERM_BILLING_MANAGE,
@@ -14,7 +15,7 @@ from backend.app.auth.rbac import (
 from backend.app.api.deps import AuthContext
 
 # Sample test secrets and keys
-TEST_PROJECT_ID = "marketai-prod"
+TEST_PROJECT_ID = settings.FIREBASE_PROJECT_ID
 MOCK_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0mockkey...\n-----END PUBLIC KEY-----"
 
 class TestAuthSecurity:
