@@ -43,6 +43,20 @@ Strict Rules:
 3. Return ONLY valid JSON array with no markdown decoration.
 """
 
+def _parse_float_value(val: Any) -> Optional[float]:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        cleaned = re.sub(r'[^\d.]', '', val)
+        if cleaned:
+            try:
+                return float(cleaned)
+            except ValueError:
+                return None
+    return None
+
 class ClaimEngine:
     @classmethod
     async def extract_claims_from_evidence(
@@ -199,16 +213,18 @@ class ClaimEngine:
                 if quote_words:
                     quote_pattern = re.compile(r'\s+'.join(quote_words), re.IGNORECASE)
                     for ev in matched_evidence:
-                        raw_text = ev.full_text or ev.raw_snippet or ""
-                        # Step 3: Fetch real snapshot bytes if full_text is empty
-                        if not raw_text and ev.snapshot_object_key:
+                        raw_text = None
+                        if ev.snapshot_object_key:
                             try:
                                 from backend.app.services.storage import storage_service
                                 snapshot_bytes = storage_service.get_object_bytes(ev.snapshot_object_key)
-                                raw_text = snapshot_bytes.decode("utf-8", errors="ignore")
-                                ev.full_text = raw_text
+                                if snapshot_bytes:
+                                    raw_text = snapshot_bytes.decode("utf-8", errors="ignore")
+                                    ev.full_text = raw_text
                             except Exception as err:
                                 logger.warning(f"Could not read evidence snapshot {ev.snapshot_object_key}: {err}")
+                        if not raw_text:
+                            raw_text = ev.full_text or ev.raw_snippet or ""
 
                         if raw_text:
                             # Step 4: Correct exact character offset mapping in raw_text
@@ -226,22 +242,16 @@ class ClaimEngine:
                     conf = max(0, conf - 30)
 
             # Step 7: Contradiction detection across numerical values and claims
-            if value is not None:
-                try:
-                    v1 = float(value)
-                    for prev_c in persisted_claims:
-                        if prev_c.get("claim_type") == claim_type and prev_c.get("value") is not None:
-                            try:
-                                v2 = float(prev_c["value"])
-                                if v1 > 0 and v2 > 0:
-                                    diff_ratio = abs(v1 - v2) / max(v1, v2)
-                                    if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
-                                        support_status = "CONTRADICTION"
-                                        logger.warning(f"Contradiction detected for {claim_type}: {v1} vs {v2} (variance {diff_ratio:.2%})")
-                            except (ValueError, TypeError):
-                                pass
-                except (ValueError, TypeError):
-                    pass
+            v1 = _parse_float_value(value)
+            if v1 is not None and v1 > 0:
+                for prev_c in persisted_claims:
+                    if prev_c.get("claim_type") == claim_type:
+                        v2 = _parse_float_value(prev_c.get("value"))
+                        if v2 is not None and v2 > 0:
+                            diff_ratio = abs(v1 - v2) / max(v1, v2)
+                            if diff_ratio > 0.30:  # >30% numeric variance indicates a contradiction
+                                support_status = "CONTRADICTION"
+                                logger.warning(f"Contradiction detected for {claim_type}: {v1} vs {v2} (variance {diff_ratio:.2%})")
 
             # Count distinct independent domains (Phase 10.3)
             distinct_domains = set(ev.domain for ev in matched_evidence if ev.domain)

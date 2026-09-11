@@ -183,6 +183,8 @@ class SSRFProtector:
                     # DNS TOCTOU Mitigation: Pin connection directly to resolved validated IP
                     parsed = urllib.parse.urlsplit(validated_url)
                     hostname = parsed.hostname
+                    if not hostname:
+                        raise SSRFSecurityError(f"Invalid host in URL '{validated_url}'")
                     resolved_ip = socket.gethostbyname(hostname)
                     if cls.is_ip_blocked(resolved_ip):
                         raise SSRFSecurityError(f"DNS TOCTOU check failed: '{hostname}' resolved to restricted IP '{resolved_ip}'")

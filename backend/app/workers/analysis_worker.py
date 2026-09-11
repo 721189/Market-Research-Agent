@@ -103,14 +103,18 @@ def analyze_evidence_task(self, job_id: str):
         if evidence_objs:
             from backend.app.services.storage import storage_service
             for ev in evidence_objs:
-                text_content = ev.full_text or ev.raw_snippet or ""
-                if not text_content and ev.snapshot_object_key:
+                text_content = None
+                if ev.snapshot_object_key:
                     try:
                         raw_b = storage_service.get_object_bytes(ev.snapshot_object_key)
-                        text_content = raw_b.decode("utf-8", errors="ignore")
-                        ev.full_text = text_content
+                        if raw_b:
+                            text_content = raw_b.decode("utf-8", errors="ignore")
+                            ev.full_text = text_content
                     except Exception as err:
-                        logger.warning(f"Failed to load snapshot for {ev.snapshot_object_key}: {err}")
+                        logger.warning(f"Failed to load snapshot object {ev.snapshot_object_key}: {err}")
+                
+                if not text_content:
+                    text_content = ev.full_text or ev.raw_snippet or ""
                 
                 evidence_records.append({
                     "url": ev.url,
