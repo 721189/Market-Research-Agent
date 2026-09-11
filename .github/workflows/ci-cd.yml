@@ -37,7 +37,7 @@ jobs:
       - name: Frontend ESLint & TypeScript Verification
         run: |
           npm run lint
-          npx tsc --noEmit
+          npx tsc --noEmit -p tsconfig.json
 
       - name: Setup Python Runtime
         uses: actions/setup-python@v5
