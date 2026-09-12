@@ -9,12 +9,20 @@ export default function Home() {
           <Link href="/" className="font-bold text-lg">
             <span className="text-accent">◈</span> MarketAI
           </Link>
-          <Link
-            href="/dashboard"
-            className="bg-accent text-canvas font-semibold px-5 py-2 rounded-lg lime-glow hover:scale-[1.03] transition"
-          >
-            Open Dashboard →
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/login"
+              className="text-muted hover:text-ink font-semibold text-sm transition"
+            >
+              Sign In / Register
+            </Link>
+            <Link
+              href="/dashboard"
+              className="bg-accent text-canvas font-semibold px-5 py-2 rounded-lg lime-glow hover:scale-[1.03] transition text-sm"
+            >
+              Open Dashboard →
+            </Link>
+          </div>
         </div>
       </nav>
 
