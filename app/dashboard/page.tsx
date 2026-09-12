@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import {
   startResearch,
@@ -434,24 +434,69 @@ function ResultsView({
   taskId: string | null;
   orgId: string;
 }) {
+  const [copied, setCopied] = useState(false);
   const fin = result.financials ?? {};
   const conf = result.confidence ?? {};
+
+  const exportCsv = () => {
+    const rows = [
+      ["Metric", "Value"],
+      ["Product Idea", `"${(result.product_idea || "").replace(/"/g, '""')}"`],
+      ["Estimated COGS ($)", fin.estimated_cogs ?? ""],
+      ["Suggested Retail Price ($)", fin.suggested_retail_price ?? ""],
+      ["Projected Gross Margin (%)", fin.projected_margin_percentage ?? ""],
+      ["Confidence Score (/100)", conf.overall_score ?? ""],
+      ["Source Reliability (%)", conf.source_reliability ?? ""],
+      ["Evidence Coverage (%)", conf.evidence_coverage ?? ""],
+      ["Data Consistency (%)", conf.consistency ?? ""],
+    ];
+    const csvContent = "data:text/csv;charset=utf-8," + rows.map((e) => e.join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `marketai_report_${taskId || Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const copyShareableLink = () => {
+    const url = window.location.href;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-2xl font-bold font-display">
           {fin.pricing_basis ?? result.product_idea}
         </h2>
-        {taskId ? (
-          <a
-            href={researchPdfUrl(orgId, taskId)}
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={exportCsv}
             className="bg-surface-2 text-ink border border-border px-4 py-2 rounded-lg text-sm font-medium hover:ring-1 hover:ring-accent transition"
           >
-            ⬇ Download PDF Report
-          </a>
-        ) : null}
+            📊 Export CSV
+          </button>
+          <button
+            onClick={copyShareableLink}
+            className="bg-surface-2 text-ink border border-border px-4 py-2 rounded-lg text-sm font-medium hover:ring-1 hover:ring-accent transition flex items-center gap-2"
+          >
+            <span>🔗</span> {copied ? "Copied Link!" : "Shareable Link"}
+          </button>
+          {taskId ? (
+            <a
+              href={researchPdfUrl(orgId, taskId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-accent text-canvas px-4 py-2 rounded-lg text-sm font-semibold hover:opacity-90 transition"
+            >
+              ⬇ Download PDF Report
+            </a>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -674,44 +719,98 @@ function PreviousResearchSection({
   pastTasks: Array<{ taskId: string; productIdea: string; mode: string; status: string; progress: number; result?: unknown; createdAt: number }>;
   onSelectTask: (task: { taskId: string; productIdea: string; mode: string; result?: unknown }) => void;
 }) {
-  if (!pastTasks || pastTasks.length === 0) return null;
+  const [dateFilter, setDateFilter] = useState<"all" | "7days" | "30days" | "90days">("all");
+  const [searchCategory, setSearchCategory] = useState("");
+  const [nowMs] = useState<number>(() => Date.now());
+
+  const filteredTasks = useMemo(() => {
+    return pastTasks.filter((t) => {
+      const age = nowMs - t.createdAt;
+      if (dateFilter === "7days" && age > 7 * 24 * 3600 * 1000) return false;
+      if (dateFilter === "30days" && age > 30 * 24 * 3600 * 1000) return false;
+      if (dateFilter === "90days" && age > 90 * 24 * 3600 * 1000) return false;
+
+      if (searchCategory.trim() && !t.productIdea.toLowerCase().includes(searchCategory.trim().toLowerCase())) {
+        return false;
+      }
+      return true;
+    });
+  }, [pastTasks, dateFilter, searchCategory, nowMs]);
 
   return (
     <section className="mt-16 pt-8 border-t border-border">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold font-display">📜 Previous Research History</h2>
-        <span className="text-xs text-muted">{pastTasks.length} recorded analyses</span>
-      </div>
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {pastTasks.map((t) => (
-          <div
-            key={t.taskId}
-            onClick={() => t.result && onSelectTask(t)}
-            className="ink-card rounded-xl p-5 cursor-pointer hover:border-accent transition group"
-          >
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-xs uppercase px-2 py-0.5 rounded bg-surface-2 text-accent font-medium">
-                {t.mode}
-              </span>
-              <span className="text-xs text-faint">
-                {new Date(t.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-            <h3 className="font-semibold text-ink group-hover:text-accent transition line-clamp-2 mb-3">
-              {t.productIdea}
-            </h3>
-            <div className="flex justify-between items-center text-xs text-muted">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-mint" />
-                Completed
-              </span>
-              <span className="text-accent group-hover:translate-x-1 transition">
-                Revisit →
-              </span>
-            </div>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-xl font-bold font-display">📜 Previous Research History</h2>
+          <p className="text-xs text-muted mt-1">Filter and compare past research results over time</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="text"
+            value={searchCategory}
+            onChange={(e) => setSearchCategory(e.target.value)}
+            placeholder="Search category/keyword..."
+            className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-ink placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <div className="flex bg-surface border border-border rounded-lg p-0.5">
+            {(
+              [
+                { key: "all", label: "All" },
+                { key: "7days", label: "7 Days" },
+                { key: "30days", label: "30 Days" },
+                { key: "90days", label: "90 Days" },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setDateFilter(f.key)}
+                className={`px-3 py-1 rounded text-xs font-medium transition ${
+                  dateFilter === f.key ? "bg-accent text-canvas font-semibold" : "text-muted hover:text-ink"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
+
+      {filteredTasks.length === 0 ? (
+        <div className="ink-card rounded-xl p-8 text-center text-muted text-sm">
+          No past research records match your selected date range or category filter.
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredTasks.map((t) => (
+            <div
+              key={t.taskId}
+              onClick={() => t.result && onSelectTask(t)}
+              className="ink-card rounded-xl p-5 cursor-pointer hover:border-accent transition group"
+            >
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-xs uppercase px-2 py-0.5 rounded bg-surface-2 text-accent font-medium">
+                  {t.mode}
+                </span>
+                <span className="text-xs text-faint">
+                  {new Date(t.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+              <h3 className="font-semibold text-ink group-hover:text-accent transition line-clamp-2 mb-3">
+                {t.productIdea}
+              </h3>
+              <div className="flex justify-between items-center text-xs text-muted">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-mint" />
+                  Completed
+                </span>
+                <span className="text-accent group-hover:translate-x-1 transition">
+                  Revisit →
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
