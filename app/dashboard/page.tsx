@@ -50,6 +50,30 @@ export default function DashboardPage() {
   });
   const [currentStep, setCurrentStep] = useState(0);
   const [pastTasks, setPastTasks] = useState<Array<{ taskId: string; productIdea: string; mode: string; status: string; progress: number; result?: unknown; createdAt: number }>>([]);
+  const [toast, setToast] = useState<{ show: boolean; message: string; productName: string } | null>(null);
+
+  // Trigger non-intrusive toast notification on research completion
+  useEffect(() => {
+    if (job.phase === "done" && job.result) {
+      const displayTimer = setTimeout(() => {
+        setToast({
+          show: true,
+          message: "Your market research analysis is ready!",
+          productName: job.product || product,
+        });
+      }, 100);
+
+      // Auto-dismiss after 8 seconds
+      const autoDismissTimer = setTimeout(() => {
+        setToast(null);
+      }, 8100);
+
+      return () => {
+        clearTimeout(displayTimer);
+        clearTimeout(autoDismissTimer);
+      };
+    }
+  }, [job.phase, job.result, job.product, product]);
 
   // Auto-login as demo user if not authenticated, ensuring frictionless access
   useEffect(() => {
@@ -341,6 +365,48 @@ export default function DashboardPage() {
           />
         ) : null}
       </main>
+
+      {/* Floating Toast Notification */}
+      {toast && toast.show && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full bg-surface/95 backdrop-blur border border-accent/30 text-ink shadow-2xl rounded-2xl p-4 animate-slide-up flex gap-3.5 items-start pointer-events-auto transition-all">
+          <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0 text-lg shadow-sm">
+            <span>✨</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h4 className="text-xs uppercase tracking-widest font-bold text-accent mb-0.5">Research Complete</h4>
+            <p className="text-sm font-semibold text-ink leading-tight truncate">
+              {toast.productName}
+            </p>
+            <p className="text-xs text-muted mt-1 leading-normal">
+              {toast.message}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => {
+                  window.scrollTo({ top: document.body.scrollHeight / 3, behavior: "smooth" });
+                  setToast(null);
+                }}
+                className="bg-accent text-canvas px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md lime-glow transition hover:scale-[1.02] cursor-pointer"
+              >
+                View Report
+              </button>
+              <button
+                onClick={() => setToast(null)}
+                className="bg-surface-2 text-muted hover:text-ink px-3 py-1.5 rounded-lg text-[11px] font-medium border border-border transition cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={() => setToast(null)}
+            className="text-muted hover:text-ink text-xs p-1 hover:bg-surface-2 rounded transition cursor-pointer"
+            aria-label="Close notification"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -429,40 +495,53 @@ function QueryHero({
         </div>
       ) : null}
 
-      {phase === "idle" || phase === "error" ? (
-        <div className="glass rounded-xl p-6">
-          <textarea
-            value={product}
-            onChange={(e) => setProduct(e.target.value)}
-            placeholder="e.g. Smart hydration bottle with UV self-clean"
-            rows={3}
-            className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-ink placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-          <div className="mt-4 flex flex-wrap gap-3 items-center justify-between">
-            <div className="flex gap-2">
-              {(["quick", "deep"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-4 py-2 rounded-lg border font-medium text-sm transition ${
-                    mode === m
-                      ? "bg-accent text-canvas"
-                      : "bg-surface text-muted border-border hover:text-ink"
-                  }`}
-                >
-                  {m === "quick" ? "⚡ Quick" : "🚀 Deep"}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={onStart}
-              className="bg-accent text-canvas font-semibold px-6 py-2.5 rounded-lg lime-glow transition hover:scale-[1.03]"
-            >
-              Launch Research →
-            </button>
+      <div className="glass rounded-xl p-6 relative overflow-hidden">
+        {phase === "running" && (
+          <div className="absolute inset-0 bg-canvas/30 backdrop-blur-[1px] z-10 pointer-events-none" />
+        )}
+        <textarea
+          value={product}
+          onChange={(e) => setProduct(e.target.value)}
+          disabled={phase === "running"}
+          placeholder="e.g. Smart hydration bottle with UV self-clean"
+          rows={3}
+          className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-ink placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-60 transition"
+        />
+        <div className="mt-4 flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex gap-2">
+            {(["quick", "deep"] as const).map((m) => (
+              <button
+                key={m}
+                disabled={phase === "running"}
+                onClick={() => setMode(m)}
+                className={`px-4 py-2 rounded-lg border font-medium text-sm transition disabled:opacity-50 ${
+                  mode === m && phase !== "running"
+                    ? "bg-accent text-canvas"
+                    : mode === m && phase === "running"
+                    ? "bg-accent/40 text-canvas/80 border-transparent"
+                    : "bg-surface text-muted border-border hover:text-ink"
+                }`}
+              >
+                {m === "quick" ? "⚡ Quick" : "🚀 Deep"}
+              </button>
+            ))}
           </div>
+          <button
+            onClick={onStart}
+            disabled={phase === "running" || !product.trim()}
+            className="bg-accent text-canvas font-semibold px-6 py-2.5 rounded-lg lime-glow transition hover:scale-[1.03] disabled:opacity-50 disabled:hover:scale-100 disabled:pointer-events-none"
+          >
+            {phase === "running" ? (
+              <span className="flex items-center gap-2">
+                <span className="w-4.5 h-4.5 border-2 border-canvas border-t-transparent rounded-full animate-spin" />
+                Analyzing Product...
+              </span>
+            ) : (
+              "Launch Research →"
+            )}
+          </button>
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }
