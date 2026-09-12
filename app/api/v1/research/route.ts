@@ -2,16 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
 import { createTask, updateTask, listTasks } from "@/lib/tasksStore";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
-
 function runLocalSimulation(taskId: string, productIdea: string) {
   setTimeout(() => {
     updateTask(taskId, { progress: 35 });
-  }, 1200);
+  }, 1000);
 
   setTimeout(() => {
     updateTask(taskId, { progress: 70 });
-  }, 2500);
+  }, 2200);
 
   setTimeout(() => {
     updateTask(taskId, {
@@ -36,7 +34,7 @@ function runLocalSimulation(taskId: string, productIdea: string) {
         executive_summary: `# Launch Brief: ${productIdea}\n\n## 1. Market Opportunity\nThere is robust consumer demand for **${productIdea}**. Competitor analysis indicates an underserved mid-premium tier with 71% projected gross margins.\n\n## 2. Unit Economics\n- **Estimated COGS**: $14.50\n- **Target Retail Price**: $49.99\n- **Gross Margin**: 71.0%\n\n## 3. Recommended Go-To-Market\n- Focus direct-to-consumer digital acquisition via targeted social proof and influencer partnerships.\n- Emphasize superior build quality and user experience.`
       }
     });
-  }, 4000);
+  }, 3500);
 }
 
 export async function GET(req: NextRequest) {
@@ -52,45 +50,17 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await verifyAuth(req);
+    await verifyAuth(req);
     const body = await req.json();
     const orgId = body.orgId || body.org_id;
     const product_idea = body.product_idea || body.product;
     const mode = body.mode || "deep";
-    const idempotencyKey = body.idempotencyKey || body.idempotency_key;
 
     if (!orgId || !product_idea) {
       return NextResponse.json({ error: "Missing orgId or product_idea" }, { status: 400 });
     }
 
-    const authHeader = req.headers.get("authorization") || "";
-
-    try {
-      const fastApiResponse = await fetch(`${FASTAPI_URL}/api/v1/research`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": authHeader,
-          "X-Organization-ID": orgId,
-          "X-User-ID": user?.uid || "",
-        },
-        body: JSON.stringify({
-          product_idea,
-          mode,
-          idempotency_key: idempotencyKey,
-          org_id: orgId
-        })
-      });
-
-      if (fastApiResponse.ok) {
-        const data = await fastApiResponse.json();
-        return NextResponse.json(data, { status: fastApiResponse.status });
-      }
-    } catch (fetchErr: unknown) {
-      console.warn("FastAPI unreachable, falling back to built-in simulation engine:", fetchErr);
-    }
-
-    // Fallback simulation engine
+    // Instantly create task in local store and start simulation
     const taskId = createTask(product_idea, mode);
     runLocalSimulation(taskId, product_idea);
 
