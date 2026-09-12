@@ -21,7 +21,8 @@
     "pdfkit": "^0.20.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "react-hook-form": "^7.85.0"
+    "react-hook-form": "^7.85.0",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",

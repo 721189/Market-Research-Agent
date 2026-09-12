@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuth } from "@/lib/auth";
-import { createTask, updateTask } from "@/lib/tasksStore";
+import { createTask, updateTask, listTasks } from "@/lib/tasksStore";
 
 const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
 
@@ -37,6 +37,17 @@ function runLocalSimulation(taskId: string, productIdea: string) {
       }
     });
   }, 4000);
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    await verifyAuth(req);
+    const tasks = listTasks();
+    return NextResponse.json({ tasks });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
