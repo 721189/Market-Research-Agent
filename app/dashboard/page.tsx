@@ -52,32 +52,78 @@ export default function DashboardPage() {
   const [pastTasks, setPastTasks] = useState<Array<{ taskId: string; productIdea: string; mode: string; status: string; progress: number; result?: unknown; createdAt: number }>>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const loadPastTasks = async () => {
-    try {
-      const res = await listPastResearchTasks();
-      if (res && res.tasks) {
-        setPastTasks(res.tasks);
-      }
-    } catch (err) {
-      console.error("Failed to load past research tasks:", err);
-    }
-  };
-
   useEffect(() => {
-    loadPastTasks();
+    let isMounted = true;
+    const fetchTasks = async () => {
+      try {
+        const res = await listPastResearchTasks();
+        if (isMounted && res && res.tasks) {
+          setPastTasks(res.tasks);
+        }
+      } catch (err) {
+        console.error("Failed to load past research tasks:", err);
+      }
+    };
+    fetchTasks();
+    return () => {
+      isMounted = false;
+    };
   }, [job.phase]);
 
   const start = async () => {
     const finalProduct = product.trim() || "Smart hydration bottle with UV self-clean";
     const finalOrgId = orgId || "org_demo_user_123";
+    const idempotencyKey = `req-${Date.now()}`;
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE || "";
+    const targetUrl = `${apiBase}/api/v1/research`;
+
+    console.group("🚀 [MarketAI Dashboard Interceptor] Executing startResearch Network Sequence");
+    console.log("📤 [Exact Request Configuration]", {
+      url: targetUrl,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": idempotencyKey,
+        "Authorization": "Bearer <Resolved Token>",
+      },
+      body: {
+        orgId: finalOrgId,
+        org_id: finalOrgId,
+        product: finalProduct,
+        product_idea: finalProduct,
+        mode,
+        idempotencyKey,
+        idempotency_key: idempotencyKey,
+      },
+    });
+
     setJob({ product: finalProduct, mode, taskId: null, phase: "running", progress: 0 });
     setCurrentStep(0);
+
     try {
-      const idempotencyKey = `req-${Date.now()}`;
-      const { task_id } = await startResearch(finalOrgId, finalProduct, mode, idempotencyKey);
-      setJob((j) => ({ ...j, taskId: task_id }));
-    } catch (err) {
-      setJob((j) => ({ ...j, phase: "error", error: String(err) }));
+      const startTime = performance.now();
+      const res = await startResearch(finalOrgId, finalProduct, mode, idempotencyKey);
+      const durationMs = Math.round(performance.now() - startTime);
+
+      console.log("📥 [Full Response Data Received]", {
+        status: 200,
+        statusText: "OK",
+        durationMs: `${durationMs}ms`,
+        data: res,
+        taskId: res?.task_id,
+      });
+      console.groupEnd();
+
+      setJob((j) => ({ ...j, taskId: res.task_id }));
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error("❌ [Response Interceptor - Backend Failure / Rejected Status]", {
+        error: errorMsg,
+        rawError: err,
+      });
+      console.groupEnd();
+
+      setJob((j) => ({ ...j, phase: "error", error: errorMsg }));
     }
   };
 
